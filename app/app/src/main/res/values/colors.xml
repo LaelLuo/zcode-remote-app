@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#101418</color>
+    <color name="bg_surface">#1C2229</color>
+    <color name="text_primary">#EAEDEF</color>
+    <color name="text_secondary">#9AA4AD</color>
+    <color name="error">#FF6B6B</color>
+    <color name="overlay_scrim">#CC000000</color>
+    <color name="ic_launcher_bg">#0B57D0</color>
+</resources>
