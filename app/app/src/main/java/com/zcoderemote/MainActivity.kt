@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private var lastProbeHit: String? = null     // 最近一次探测命中类别（A/B），null=健康
     private var confirmCategory: String? = null  // 去抖：当前连续命中的类别
     private var confirmStreak = 0                // 去抖：连续命中次数
+    private var lastNotifiedRunState: SessionState = SessionState.IDLE // 会话状态基准（瞬态覆盖不污染）
     private var reloadCount = 0                  // 本轮连续自动重载次数
     private var lastReloadAt = 0L                // 上次重载时刻（恢复健康清零用）
     private var pageLoadedOnce = false           // 页面至少完整加载过一次
@@ -85,11 +86,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // —— 探测循环：前台 5s、后台 30s，常驻（前台服务保活下页面 JS 持续运行） ——
+    // —— 探测循环：前台 5s、后台 10s（后台也要较快发现会话完成，驱动灵动岛状态） ——
     private val probeRunnable = object : Runnable {
         override fun run() {
             probeOnce()
-            val delay = if (panel == Panel.WEB) 5_000L else 30_000L
+            val delay = if (panel == Panel.WEB) 5_000L else 10_000L
             handler.postDelayed(this, delay)
         }
     }
@@ -185,6 +186,7 @@ class MainActivity : AppCompatActivity() {
         }
         resetConnectionState()
         showPanel(Panel.WEB)
+        IslandNotifier.update(this, SessionState.IDLE)
         webView?.loadUrl(url)
         KeepAliveService.start(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -272,21 +274,23 @@ class MainActivity : AppCompatActivity() {
         webView = null
     }
 
-    // —— 断线探测 ——
+    // —— 断线探测与会话状态 ——
     private fun probeOnce() {
         val wv = webView ?: return
         if (panel != Panel.WEB || terminalStop) return
         wv.evaluateJavascript(FailureFeatures.probeScript()) { result ->
-            val hit = when (result) {
-                "\"A\"" -> "A"
-                "\"B\"" -> "B"
-                else -> null
-            }
-            onProbeResult(hit)
+            // result 形如 "\"A|1|0\""（evaluateJavascript 会做一层字符串编码）
+            val raw = result?.trim('"') ?: return@evaluateJavascript
+            val parts = raw.split('|')
+            if (parts.size != 3) return@evaluateJavascript
+            val hit = parts[0].takeIf { it == "A" || it == "B" }
+            val running = parts[1] == "1"
+            val sendFailed = parts[2] == "1"
+            onProbeResult(hit, running, sendFailed)
         }
     }
 
-    private fun onProbeResult(hit: String?) {
+    private fun onProbeResult(hit: String?, running: Boolean, sendFailed: Boolean) {
         lastProbeHit = hit
         if (hit == null) {
             confirmStreak = 0
@@ -295,36 +299,59 @@ class MainActivity : AppCompatActivity() {
             if (reloadCount > 0 && SystemClock.elapsedRealtime() - lastReloadAt > 60_000L) {
                 reloadCount = 0
             }
-            return
-        }
-        if (hit == confirmCategory) confirmStreak++ else {
-            confirmCategory = hit
-            confirmStreak = 1
-        }
-        // 连续 2 次命中才动作，过滤加载瞬间的闪现文本
-        if (confirmStreak >= 2) {
-            confirmStreak = 0
-            confirmCategory = null
+        } else {
+            if (hit == confirmCategory) confirmStreak++ else {
+                confirmCategory = hit
+                confirmStreak = 1
+            }
+            // 连续 2 次命中才动作，过滤加载瞬间的闪现文本
+            if (confirmStreak >= 2) {
+                confirmStreak = 0
+                confirmCategory = null
             if (hit == "B") {
                 terminalStop = true
-                showErrorOverlay(
-                    getString(R.string.error_terminal),
-                    retryEnabled = true,
-                )
+                IslandNotifier.update(this, SessionState.TERMINAL)
+                showErrorOverlay(getString(R.string.error_terminal), retryEnabled = true)
             } else {
-                scheduleReload()
+                    scheduleReload()
+                }
             }
         }
+        updateSessionState(running, sendFailed)
     }
+
+    /** 会话状态优先级：终态 > 重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
+    private fun updateSessionState(running: Boolean, sendFailed: Boolean) {
+        val newState = when {
+            terminalStop -> SessionState.TERMINAL
+            lastProbeHit != null || pageErrorVisible || recentlyReloaded() -> SessionState.RECONNECTING
+            sendFailed -> SessionState.SEND_FAILED
+            running -> SessionState.RUNNING
+            else -> when (lastNotifiedRunState) {
+                SessionState.RUNNING, SessionState.DONE -> SessionState.DONE
+                else -> SessionState.IDLE
+            }
+        }
+        // RUNNING/DONE/IDLE 记入基准（SEND_FAILED 等瞬态覆盖不污染基准）
+        if (newState in setOf(SessionState.RUNNING, SessionState.DONE, SessionState.IDLE)) {
+            lastNotifiedRunState = newState
+        }
+        IslandNotifier.update(this, newState)
+    }
+
+    private fun recentlyReloaded(): Boolean =
+        reloadCount > 0 && SystemClock.elapsedRealtime() - lastReloadAt < 30_000L
 
     private fun scheduleReload() {
         if (terminalStop) return
         // 断网期间不烧重载次数：等网络恢复回调来触发
         if (!isNetworkAvailable()) return
         if (reloadCount >= maxReloads) {
+            IslandNotifier.update(this, SessionState.RECONNECTING)
             showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
             return
         }
+        IslandNotifier.update(this, SessionState.RECONNECTING)
         val delay = reloadDelays[reloadCount]
         reloadCount++
         lastReloadAt = SystemClock.elapsedRealtime()
@@ -379,6 +406,7 @@ class MainActivity : AppCompatActivity() {
         terminalStop = false
         pageLoadedOnce = false
         pageErrorVisible = false
+        lastNotifiedRunState = SessionState.IDLE
     }
 
     private fun stopProbeLoops() {
