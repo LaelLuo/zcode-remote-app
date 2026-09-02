@@ -200,6 +200,7 @@ class MainActivity : AppCompatActivity() {
     // —— WebView ——
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
+        WebView.setWebContentsDebuggingEnabled(true)
         val wv = WebView(this)
         wv.settings.javaScriptEnabled = true
         wv.settings.domStorageEnabled = true
@@ -226,6 +227,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                android.util.Log.d("ZCodeRemote", "onReceivedError main=${request.isForMainFrame} url=${request.url} err=${error.description}")
                 if (request.isForMainFrame && panel != Panel.CONFIG && !terminalStop) {
                     pageErrorVisible = true
                     scheduleReload()
@@ -279,18 +281,21 @@ class MainActivity : AppCompatActivity() {
         val wv = webView ?: return
         if (panel != Panel.WEB || terminalStop) return
         wv.evaluateJavascript(FailureFeatures.probeScript()) { result ->
-            // result 形如 "\"A|1|0\""（evaluateJavascript 会做一层字符串编码）
+            // result 形如 "\"A|1|0|%E4%BC%9A...\""（evaluateJavascript 会做一层字符串编码）
             val raw = result?.trim('"') ?: return@evaluateJavascript
             val parts = raw.split('|')
-            if (parts.size != 3) return@evaluateJavascript
+            if (parts.size != 4) return@evaluateJavascript
             val hit = parts[0].takeIf { it == "A" || it == "B" }
             val running = parts[1] == "1"
-            val sendFailed = parts[2] == "1"
-            onProbeResult(hit, running, sendFailed)
+            // 发送失败与 turn 运行中互斥：run 是更可靠的信号，矛盾时忽略 sf
+            val sendFailed = parts[2] == "1" && !running
+            val title = try { java.net.URLDecoder.decode(parts[3], "UTF-8") } catch (_: Exception) { "" }
+            android.util.Log.d("ZCodeRemote", "probe fail=$hit run=$running sf=$sendFailed title=$title loaded=$pageLoadedOnce err=$pageErrorVisible reloads=$reloadCount")
+            onProbeResult(hit, running, sendFailed, title)
         }
     }
 
-    private fun onProbeResult(hit: String?, running: Boolean, sendFailed: Boolean) {
+    private fun onProbeResult(hit: String?, running: Boolean, sendFailed: Boolean, title: String) {
         lastProbeHit = hit
         if (hit == null) {
             confirmStreak = 0
@@ -308,20 +313,20 @@ class MainActivity : AppCompatActivity() {
             if (confirmStreak >= 2) {
                 confirmStreak = 0
                 confirmCategory = null
-            if (hit == "B") {
-                terminalStop = true
-                IslandNotifier.update(this, SessionState.TERMINAL)
-                showErrorOverlay(getString(R.string.error_terminal), retryEnabled = true)
-            } else {
+                if (hit == "B") {
+                    terminalStop = true
+                    IslandNotifier.update(this, SessionState.TERMINAL)
+                    showErrorOverlay(getString(R.string.error_terminal), retryEnabled = true)
+                } else {
                     scheduleReload()
                 }
             }
         }
-        updateSessionState(running, sendFailed)
+        updateSessionState(running, sendFailed, title)
     }
 
     /** 会话状态优先级：终态 > 重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
-    private fun updateSessionState(running: Boolean, sendFailed: Boolean) {
+    private fun updateSessionState(running: Boolean, sendFailed: Boolean, title: String) {
         val newState = when {
             terminalStop -> SessionState.TERMINAL
             lastProbeHit != null || pageErrorVisible || recentlyReloaded() -> SessionState.RECONNECTING
@@ -336,7 +341,7 @@ class MainActivity : AppCompatActivity() {
         if (newState in setOf(SessionState.RUNNING, SessionState.DONE, SessionState.IDLE)) {
             lastNotifiedRunState = newState
         }
-        IslandNotifier.update(this, newState)
+        IslandNotifier.update(this, newState, title.ifBlank { null })
     }
 
     private fun recentlyReloaded(): Boolean =

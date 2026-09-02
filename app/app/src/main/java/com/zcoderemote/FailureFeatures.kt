@@ -3,12 +3,14 @@ package com.zcoderemote
 /**
  * 官方 Web 远程控制页面的 DOM 探测特征（来源：桌面端 app.asar 的 i18n 文案与前端代码，2026-09-02 逆向）。
  *
- * 输出组合串：`<fail>|<run>|<sf>`
+ * 输出组合串：`<fail>|<run>|<sf>|<title>`
  * - fail：B=终态（重载无意义，需重新扫码）；A=瞬态（自动重载）；空=连接健康。
  *   两条 "no longer valid" 特征必须整串匹配：B 类 "...Start it again" 先于 A 类 "...Reload" 判定。
- * - run：turn 是否运行中。发送按钮在 turn 进行中会替换为「停止生成」按钮（title 挂载，
- *   中英文 i18n 均为精确整串）。querySelector 不依赖渲染管线，后台探测同样可靠。
- * - sf：页面出现「发送失败」类文案（chat.error.sendFailed / sendMessage.failed 的可见文本）。
+ * - run：turn 是否运行中。信号（2026-09-02 浏览器实测）：当前 turn 的计时按钮文本以「工作中」开头
+ *   （历史消息恒为「已工作」，不可用作完成判定）；或存在文本恰为「停止生成」/"Stop" 的按钮
+ *   （textContent 精确匹配，天然排除仅 title 挂载的图标按钮）。
+ * - sf：页面出现「发送失败，请稍后重试」完整句（短串会被会话消息内容污染）。
+ * - title：h1 会话名（encodeURIComponent，灵动岛显示用）。
  */
 object FailureFeatures {
 
@@ -29,12 +31,10 @@ object FailureFeatures {
         "无法启动移动端远程控制", "Could not start mobile remote control",
     )
 
-    private val SEND_FAIL = listOf("发送失败", "Failed to send")
+    // 完整句匹配：短串「发送失败」会被会话消息内容污染（消息历史含特征字符串）
+    private val SEND_FAIL = listOf("发送失败，请稍后重试", "Failed to send. Try again later.")
 
-    private const val RUNNING_SELECTOR =
-        "button[title=\"停止生成\"],button[title=\"Stop\"],button[aria-label=\"停止生成\"],button[aria-label=\"Stop\"]"
-
-    /** 注入页面执行的探测脚本：返回 "A|1|0" 形式的组合串。 */
+    /** 注入页面执行的探测脚本：返回 "A|1|0|%E4%BC%9A%E8%AF%9D" 形式的组合串。 */
     fun probeScript(): String {
         val b = jsArray(CATEGORY_B)
         val a = jsArray(CATEGORY_A)
@@ -47,11 +47,18 @@ var S=$sf;
 var f='';
 for(var i=0;i<B.length;i++){if(t.indexOf(B[i])>=0){f='B';break}}
 if(!f){for(var j=0;j<A.length;j++){if(t.indexOf(A[j])>=0){f='A';break}}}
-var run=!!document.querySelector("$RUNNING_SELECTOR");
+var bs=document.querySelectorAll('button');
+var run=false;
+for(var m=0;m<bs.length;m++){
+var x=(bs[m].textContent||'').trim();
+if(x.indexOf('工作中')===0||x==='停止生成'||x==='Stop'){run=true;break}
+}
 var sf=0;
 for(var k=0;k<S.length;k++){if(t.indexOf(S[k])>=0){sf=1;break}}
-return f+'|'+(run?1:0)+'|'+sf;
-}catch(e){return '||0'}})()"""
+var h1=document.querySelector('h1');
+var ti=h1?encodeURIComponent(h1.textContent.trim().slice(0,24)):'';
+return f+'|'+(run?1:0)+'|'+sf+'|'+ti;
+}catch(e){return '||0|'}})()"""
     }
 
     private fun jsArray(list: List<String>): String =
