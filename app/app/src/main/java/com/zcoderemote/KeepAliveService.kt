@@ -37,6 +37,9 @@ class KeepAliveService : Service() {
     }
 
     private fun startAsForeground() {
+        // startForeground 的通知自带渠道 ID，渠道不存在会被判 Bad notification 崩溃；
+        // 服务可能被系统独立拉起，必须自己保证渠道存在，不依赖 Activity 侧先发过通知
+        StatusNotifier.ensureChannel(this)
         val notification = StatusNotifier.buildNotification(this, StatusNotifier.current)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(

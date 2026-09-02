@@ -52,15 +52,22 @@ object StatusNotifier {
     }
 
     fun notify(ctx: Context) {
+        ensureChannel(ctx)
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
+        nm.notify(NOTIF_ID, buildNotification(ctx, current))
+    }
+
+    /** 幂等创建通知渠道。前台服务 startForeground 前必须调用：
+     *  带渠道 ID 的通知在渠道不存在时会被系统判为 Bad notification 直接崩溃，
+     *  且服务可能被系统独立重启（START_STICKY），不能依赖 MainActivity 先发过通知。 */
+    fun ensureChannel(ctx: Context) {
+        ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
                 ctx.getString(R.string.notif_channel_name),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply { setShowBadge(false) }
         )
-        nm.notify(NOTIF_ID, buildNotification(ctx, current))
     }
 
     fun buildNotification(ctx: Context, state: SessionState): Notification {
