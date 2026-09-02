@@ -186,7 +186,7 @@ class MainActivity : AppCompatActivity() {
         }
         resetConnectionState()
         showPanel(Panel.WEB)
-        IslandNotifier.update(this, SessionState.IDLE)
+        StatusNotifier.update(this, SessionState.IDLE)
         webView?.loadUrl(url)
         KeepAliveService.start(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -315,7 +315,7 @@ class MainActivity : AppCompatActivity() {
                 confirmCategory = null
                 if (hit == "B") {
                     terminalStop = true
-                    IslandNotifier.update(this, SessionState.TERMINAL)
+                    StatusNotifier.update(this, SessionState.TERMINAL)
                     showErrorOverlay(getString(R.string.error_terminal), retryEnabled = true)
                 } else {
                     scheduleReload()
@@ -341,7 +341,7 @@ class MainActivity : AppCompatActivity() {
         if (newState in setOf(SessionState.RUNNING, SessionState.DONE, SessionState.IDLE)) {
             lastNotifiedRunState = newState
         }
-        IslandNotifier.update(this, newState, title.ifBlank { null })
+        StatusNotifier.update(this, newState, title.ifBlank { null })
     }
 
     private fun recentlyReloaded(): Boolean =
@@ -352,11 +352,11 @@ class MainActivity : AppCompatActivity() {
         // 断网期间不烧重载次数：等网络恢复回调来触发
         if (!isNetworkAvailable()) return
         if (reloadCount >= maxReloads) {
-            IslandNotifier.update(this, SessionState.RECONNECTING)
+            StatusNotifier.update(this, SessionState.RECONNECTING)
             showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
             return
         }
-        IslandNotifier.update(this, SessionState.RECONNECTING)
+        StatusNotifier.update(this, SessionState.RECONNECTING)
         val delay = reloadDelays[reloadCount]
         reloadCount++
         lastReloadAt = SystemClock.elapsedRealtime()

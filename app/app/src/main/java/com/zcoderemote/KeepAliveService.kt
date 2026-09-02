@@ -9,7 +9,7 @@ import android.os.IBinder
 
 /**
  * 前台保活服务：让 app 进程不进后台冻结态，WebView 里的官方页面心跳得以持续。
- * 通知本体（含灵动岛状态）由 IslandNotifier 统一构建，状态变化走 notify 同 id 更新。
+ * 通知本体（含会话状态）由 StatusNotifier 统一构建，状态变化走 notify 同 id 更新。
  */
 class KeepAliveService : Service() {
 
@@ -37,14 +37,14 @@ class KeepAliveService : Service() {
     }
 
     private fun startAsForeground() {
-        val notification = IslandNotifier.buildNotification(this, IslandNotifier.current)
+        val notification = StatusNotifier.buildNotification(this, StatusNotifier.current)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
-                IslandNotifier.NOTIF_ID, notification,
+                StatusNotifier.NOTIF_ID, notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
         } else {
-            startForeground(IslandNotifier.NOTIF_ID, notification)
+            startForeground(StatusNotifier.NOTIF_ID, notification)
         }
     }
 }
