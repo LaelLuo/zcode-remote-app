@@ -1,0 +1,27 @@
+# Android / Gradle
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 通用产物 / 运行时 / 敏感
+node_modules/
+artifacts/
+workdir/
+worktrees/
+*.log
+*.db*
+data/
+.env*
+*.key
+*.pem
+auth.json
+
+# 凭据：远程控制链接含 passHash，不进版本史
+*.link.txt
+remote-url*
