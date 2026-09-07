@@ -15,7 +15,8 @@ import android.os.SystemClock
  * CONFIG 无凭据/已回配置。链接判死是瞬时迁移到 CONFIG（清凭据停服务），
  * 没有驻留的「终态」——这是 3a7cdc4 之后的既定行为， 删除死分支后定型。
  */
-class ConnectionMachine(private val actor: Actor, private val defaultTerminalHint: String) {
+/** terminalHint：延迟求值的终态提示文案（Activity 完成装配前构造 machine，不能立即取资源）。 */
+class ConnectionMachine(private val actor: Actor, private val terminalHint: ) -> String) {
 
  enum class State { OK, RECONNECTING, EXHAUSTED, CONFIG }
 
@@ -163,7 +164,7 @@ class ConnectionMachine(private val actor: Actor, private val defaultTerminalHin
  confirmCategory = null
  if (hit == "B") {
  state = State.CONFIG
- actor.rescan(defaultTerminalHint)
+ actor.rescan(terminalHint))
  } else {
  scheduleReload)
  }

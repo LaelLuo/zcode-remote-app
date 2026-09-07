@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun hasNetwork): Boolean = isNetworkAvailable)
- }, defaultTerminalHint = getString(R.string.config_stale_hint))
+ }, terminalHint = { getString(R.string.config_stale_hint) })
 
  // 会话状态基准（瞬态覆盖不污染）——会话层，不属于连接状态机
  private var lastNotifiedRunState: SessionState = SessionState.IDLE
