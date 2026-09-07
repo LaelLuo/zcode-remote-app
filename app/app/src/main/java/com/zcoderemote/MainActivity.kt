@@ -630,6 +630,7 @@ class MainActivity : AppCompatActivity) {
  UrlStore.clear(this)
  destroyWebView)
  KeepAliveService.stop(this)
+ etUrl.setText("") // 残留的旧链接是死链，误点「使用粘贴的链接」白等一轮 30s 超时
  if (hint != null) {
  tvConfigError.text = hint
  tvConfigError.visibility = View.VISIBLE
