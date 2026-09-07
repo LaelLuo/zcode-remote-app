@@ -12,6 +12,7 @@
  var previews = {}; // 会话标题 -> lastAssistantPreview（session.upserted 的实时回复预览）
  var lastFrameAt = 0; // 最近一次真实中继帧的 epoch ms
  var pendingReport = 0; // 即时上报的合并定时器（帧风暴时 300ms 合并一次）
+ var pairState = ''; // 最近一次 pair_status_ack 的值（waiting|matched）——WS close 层终态判定的输入
 
  // 状态变化即时上报：300ms 合并窗口（bootstrap 后初始帧风暴不去逐帧触发 DOM 读取）
  function scheduleReport) {
@@ -100,6 +101,7 @@
  var outer = JSON.parse(text);
  if (outer.type === 'data') extractDataEvents(outer);
  else if (outer.type === 'error') reportRelayError(outer);
+ else if (outer.type === 'pair_status_ack') pairState = String(outer.pair_status || '');
  } catch (e) { /* 非 JSON 帧忽略 */ }
  }
 
@@ -118,29 +120,43 @@
  } catch (e) { /* 桥异常静默，DOM 探测兜底 */ }
  }
 
+ // waiting 超时无 WS 信号（纯客户端 30s 定时器），但 enterTerminalFailure 会先
+ // socket.close) 再渲染错误页——close(1000)@waiting 就是超时终局的第一手瞬间：
+ // 网络瞬断的 close 是 1006 且不干净，不会误报；matched 态不判（被踢走 error 帧层）
+ function reportCloseSignal(code) {
+ try {
+ if (pairState === 'waiting' && code === 1000) {
+ bridge.onSignal('{"terminal":"invalid-mobile-connection","via":"ws-close"}');
+ } else {
+ bridge.onSignal('{"life":"close","code":' + code + '}');
+ }
+ } catch (e) { /* 桥异常静默 */ }
+ }
+
  // —— 视图语境 + 状态决策（语义：列表=聚合、会话=单会话） ——
  // 视图判定用 XPath 定点查「任务会话」标题（文本节点查询不触发样式重排，比读全文便宜）；
  // 标题配对只在视图翻转时做一次——视图内当前会话不变，其状态由帧驱动即时刷新
  var lastView = '';
  var curTitle = '';
 
- // 传输层终态码（enterTerminalFailure 的 reason，artifacts/remote-bundle.js 实证）：
- // invalid-mobile-connection=配对失败/鉴权失效、session-conflict=被踢、relay-unavailable、
- // desktop-disconnected=桌面离线超宽限。出现即链接死亡——React 渲染错误组件的同一毫秒
- // 经 MutationObserver 上报，比等页面文本变化的 5s 轮询探测早一个量级。
- // 只认白名单：会话任务的错误横幅同挂 data-error-code，但 code 是任务/API 错误码不在此列
- var TERMINAL_CODES = {
- 'invalid-mobile-connection': 1,
- 'session-conflict': 1,
- 'relay-unavailable': 1,
- 'desktop-disconnected': 1
+ // 终态页锚=渲染标题（_4t 组件 h1=r.title，不挂任何 data 属性——data-error-code 是
+ // 会话消息错误组件的锚，曾挂错对象真机实测落空）。四码双语对照 artifacts/remote-bundle.js
+ // 映射表；会话页 h1=会话名，撞上这八个标题的概率≈0
+ var TERMINAL_TITLES = {
+ '手机连接已失效': 'invalid-mobile-connection',
+ 'Mobile Connection Invalid': 'invalid-mobile-connection',
+ '已被其他设备接管': 'session-conflict',
+ 'Taken Over By Another Device': 'session-conflict',
+ '无法连接中转服务': 'relay-unavailable',
+ 'Relay Unavailable': 'relay-unavailable',
+ '桌面端已离线': 'desktop-disconnected',
+ 'Desktop Offline': 'desktop-disconnected'
  };
  function readTerminalCode) {
  try {
- var el = document.querySelector('[data-error-code]');
- if (!el) return '';
- var c = el.getAttribute('data-error-code') || '';
- return TERMINAL_CODES[c] ? c : '';
+ var h1 = document.querySelector('h1');
+ if (!h1) return '';
+ return TERMINAL_TITLES[(h1.textContent || '').trim)] || '';
  } catch (e) { return ''; }
  }
 
@@ -250,9 +266,7 @@
  function wrap(ws, url) {
  var raw = ws.addEventListener.bind(ws);
  raw('open', function ) { try { bridge.onSignal('{"life":"open","url":"' + url + '"}'); } catch (e) {} });
- raw('close', function (ev) {
- try { bridge.onSignal('{"life":"close","code":' + ev.code + '}'); } catch (e) {}
- });
+ raw('close', function (ev) { reportCloseSignal(ev.code); });
  ws.addEventListener = function (type, listener, opts) {
  if (type === 'message' && typeof listener === 'function') {
  var wrapped = function (ev) { onWireMessage(String(ev.data)); listener(ev); };
