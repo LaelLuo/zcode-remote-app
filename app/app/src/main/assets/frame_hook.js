@@ -134,8 +134,12 @@
  var view = isSessionView) ? 'session' : 'list';
  if (view !== lastView) {
  lastView = view;
- curTitle = view === 'session' ? matchSessionTitle) : '';
+ curTitle = '';
  }
+ // 翻转瞬间页面可能还在渲染（innerText 里还没有会话标题），配对会落空——
+ // 只试一次的话空标题会让信号 status 为空、Kotlin 侧判回列表视图（2026-09-07 真机
+ // 「打开已完成会话状态栏还是任务列表」）。session 视图下空标题持续重试直到配上
+ if (view === 'session' && !curTitle) curTitle = matchSessionTitle);
 
  var runningCount = 0;
  for (var id0 in tasks) if (tasks[id0] && tasks[id0].live === 'running') runningCount++;
