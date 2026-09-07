@@ -79,9 +79,20 @@ class ConnectionMachine(private val actor: Actor) {
 
  fun onFrameSignal) {
  lastFrameSignalAt = SystemClock.elapsedRealtime)
+ // 帧桥持续活着=页面真恢复。RECONNECTING 的回收不能只靠降级探测的健康路径
+ // （ 后正常态 DOM 探测不跑，没人喂 onProbeHit(null)）
+ maybeRecover)
  }
 
  private fun signalAge) = SystemClock.elapsedRealtime) - lastFrameSignalAt
+
+ /** 重载后保持健康 60s 视为真恢复：计数清零、回 OK。 */
+ private fun maybeRecover) {
+ if (reloadCount > 0 && SystemClock.elapsedRealtime) - lastReloadAt > 60_000L) {
+ reloadCount = 0
+ if (state == State.RECONNECTING) state = State.OK
+ }
+ }
 
  /** 供会话层兜底：最近 30s 内是否发生过自动重载。 */
  fun recentlyReloaded): Boolean =
@@ -117,6 +128,7 @@ class ConnectionMachine(private val actor: Actor) {
  /** 用户手点错误覆盖层「重试」。 */
  fun onUserRetry) {
  reloadCount = 0
+ state = State.RECONNECTING // 不残留 EXHAUSTED：否则 60s 慢重试会误触发
  actor.hideExhausted)
  actor.reloadAfter(0)
  }
@@ -139,11 +151,7 @@ class ConnectionMachine(private val actor: Actor) {
  if (hit == null) {
  confirmCategory = null
  confirmStreak = 0
- // 重载后保持健康 60s 视为真恢复，计数清零、回 OK
- if (reloadCount > 0 && SystemClock.elapsedRealtime) - lastReloadAt > 60_000L) {
- reloadCount = 0
- if (state == State.RECONNECTING) state = State.OK
- }
+ maybeRecover)
  return
  }
  if (hit == confirmCategory) confirmStreak++ else {
