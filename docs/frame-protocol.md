@@ -84,3 +84,16 @@ code 值域不同）。
 data-error-code 白名单四码（500ms 合并，覆盖 30s 超时这类无帧场景）③ probe DOM 文本轮询
 （5s×2 确认兜底，特征补两条长句防短串被聊天内容污染）。三层全通向 performRescan
 （清凭据回配置界面+红字原因）。
+
+## 终态感知实测修正（09-08 真机三轮迭代，7e65fb0 定稿）
+
+- 传输终态页 `_4t({failure,locale})` 组件不挂任何 data 属性（h1=r.title）——`data-error-code`
+ 是会话消息错误组件的锚，不可用于传输终态检测（曾挂错真机落空一轮）
+- **WS close 层判 waiting 超时终局（真机 30s 定时器到点 108ms 内命中）**：JS `close)` 无参
+ 在 WebView 上 close code=**1005**（非 1000）；waiting 期零 pair_status_ack（pairState 判定
+ 不可用）；data 帧只在配对成功后推——判据=「零 data 帧 + close(1005)」。网络闪断 1006、
+ 配对后断线 everData=true，均不误判
+- 终态文案映射表（key→双语 badge/title）：invalid-mobile-connection=校验失败/手机连接已失效、
+ session-conflict=设备接管/已被其他设备接管、relay-unavailable=中转异常/无法连接中转服务、
+ desktop-disconnected=电脑端离线/桌面端已离线（表内混有非终态键如 desktop-bootstrap-timeout，
+ 按 badge/title 匹配时须限定四码）
