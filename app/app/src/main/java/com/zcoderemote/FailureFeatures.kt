@@ -19,6 +19,10 @@ object FailureFeatures {
         "这次 Web 远程控制会话已经结束", "session has already ended",
         "当前 Web 远程控制链接已经失效", "link is no longer valid. Start it again",
         "桌面端共享的窗口已经关闭", "shared desktop window has been closed",
+        // 桌面端重置链接后的校验失败页（2026-09-07 真机截图实证）。用长句而非
+        // 短标题「手机连接已失效」：页面正文含整个聊天记录，短串会被会话消息引用误报
+        "did not match this mobile connection",
+        "二维码参数或鉴权信息已经失效",
     )
 
     private val CATEGORY_A = listOf(

@@ -98,8 +98,24 @@
  lastFrameAt = Date.now);
  try {
  var outer = JSON.parse(text);
- if (outer && outer.type === 'data') extractDataEvents(outer);
+ if (outer.type === 'data') extractDataEvents(outer);
+ else if (outer.type === 'error') reportRelayError(outer);
  } catch (e) { /* 非 JSON 帧忽略 */ }
+ }
+
+ // —— WS 层终态直报（第一手，早于 React 渲染）：中继 error 帧的分发语义照抄官方
+ // handleRelayError（artifacts/remote-bundle.js）：KICKED/AUTH_FAILED/WRONG_PARAM 终态，
+ // DEVICE_OFFLINE/INTERNAL 可恢复不报，未知码=官方兜底 relay-unavailable 也终态。
+ // 即时单帧上报不进 300ms 合并——量极小，且这一毫秒就是它存在的意义
+ var RELAY_FATAL = { KICKED: 'session-conflict', AUTH_FAILED: 'invalid-mobile-connection', WRONG_PARAM: 'invalid-mobile-connection' };
+ var RELAY_RECOVERABLE = { DEVICE_OFFLINE: 1, INTERNAL: 1 };
+ function reportRelayError(outer) {
+ var code = String(outer.code || '');
+ if (!code || RELAY_RECOVERABLE[code]) return;
+ var reason = RELAY_FATAL[code] || 'relay-unavailable';
+ try {
+ bridge.onSignal('{"terminal":"' + reason + '","relayCode":"' + code + '"}');
+ } catch (e) { /* 桥异常静默，DOM 探测兜底 */ }
  }
 
  // —— 视图语境 + 状态决策（语义：列表=聚合、会话=单会话） ——
@@ -107,6 +123,26 @@
  // 标题配对只在视图翻转时做一次——视图内当前会话不变，其状态由帧驱动即时刷新
  var lastView = '';
  var curTitle = '';
+
+ // 传输层终态码（enterTerminalFailure 的 reason，artifacts/remote-bundle.js 实证）：
+ // invalid-mobile-connection=配对失败/鉴权失效、session-conflict=被踢、relay-unavailable、
+ // desktop-disconnected=桌面离线超宽限。出现即链接死亡——React 渲染错误组件的同一毫秒
+ // 经 MutationObserver 上报，比等页面文本变化的 5s 轮询探测早一个量级。
+ // 只认白名单：会话任务的错误横幅同挂 data-error-code，但 code 是任务/API 错误码不在此列
+ var TERMINAL_CODES = {
+ 'invalid-mobile-connection': 1,
+ 'session-conflict': 1,
+ 'relay-unavailable': 1,
+ 'desktop-disconnected': 1
+ };
+ function readTerminalCode) {
+ try {
+ var el = document.querySelector('[data-error-code]');
+ if (!el) return '';
+ var c = el.getAttribute('data-error-code') || '';
+ return TERMINAL_CODES[c] ? c : '';
+ } catch (e) { return ''; }
+ }
 
  function isSessionView) {
  try {
@@ -196,6 +232,7 @@
  }
  }
  }
+ signal.terminal = readTerminalCode);
  signal.framesSince = lastFrameAt ? Math.round((Date.now) - lastFrameAt) / 1000) : -1;
  signal.ts = Date.now);
  return signal;

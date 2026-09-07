@@ -30,6 +30,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -115,6 +116,16 @@ class MainActivity : AppCompatActivity) {
  private fun onFrameSignal(json: String) {
  val sig = try { JSONObject(json) } catch (_: Exception) { return }
  if (sig.has("life")) return // WS open/close 生命周期：只旁听记录，不驱动（假死检测兜底）
+ // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
+ // 一个量级）：直接清凭据回配置界面。panel 守卫挡 WebView 销毁竞态期的重复信号
+ val terminalCode = sig.optString("terminal", "")
+ if (terminalCode.isNotEmpty)) {
+ if (panel == Panel.WEB) {
+ Log.i("FrameSignal", "terminal='$terminalCode' -> rescan")
+ performRescan(getString(R.string.config_stale_hint))
+ }
+ return
+ }
  frameSignalAt = SystemClock.elapsedRealtime)
  frameStatus = sig.optString("status", "")
  frameTitle = sig.optString("title", "")
@@ -288,15 +299,19 @@ class MainActivity : AppCompatActivity) {
  hideErrorOverlay)
  webView?.reload)
  }
- findViewById<Button>(R.id.btnRescan).setOnClickListener {
- terminalStop = false
- reloadCount = 0
- stopProbeLoops)
- UrlStore.clear(this)
- destroyWebView)
- KeepAliveService.stop(this)
- showPanel(Panel.CONFIG)
+ findViewById<Button>(R.id.btnRescan).setOnClickListener { performRescan(null) }
+
+ // 返回键：会话/列表页优先页面内后退（SPA 路由进 WebView history），退无可退
+ // 回桌面但 app 不死（保活+WebView 继续跑，监控常驻语义）；配置页正常退出
+ onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+ override fun handleOnBackPressed) {
+ when (panel) {
+ Panel.WEB, Panel.ERROR ->
+ if (webView?.canGoBack) == true) webView?.goBack) else moveTaskToBack(true)
+ Panel.CONFIG -> finish)
  }
+ }
+ })
 
  registerNetworkCallback)
  handler.post(probeRunnable)
@@ -499,9 +514,10 @@ class MainActivity : AppCompatActivity) {
  confirmStreak = 0
  confirmCategory = null
  if (hit == "B") {
- terminalStop = true
- StatusNotifier.update(this, SessionState.TERMINAL)
- showErrorOverlay(getString(R.string.error_terminal), retryEnabled = true)
+ // ：终态=凭据已死，重载无意义，直接清凭据回配置界面（带原因提示）。
+ // return 跳过末尾的 updateSessionState——保活服务已停，别再动通知
+ performRescan(getString(R.string.config_stale_hint))
+ return
  } else {
  scheduleReload)
  }
@@ -512,6 +528,8 @@ class MainActivity : AppCompatActivity) {
 
  /** 会话状态优先级：终态 > 重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
  private fun updateSessionState(running: Boolean, sendFailed: Boolean, title: String) {
+ // 配置界面没有会话在跑，通知已随保活服务停止，不该再动
+ if (panel == Panel.CONFIG) return
  // ：帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），
  // 轮询让位只做兜底；terminalStop 的终态探测不受让位影响
  if (frameSignalFresh) && !terminalStop && lastProbeHit == null) return
@@ -598,6 +616,21 @@ class MainActivity : AppCompatActivity) {
 
  private fun hideErrorOverlay) {
  if (panel == Panel.ERROR) showPanel(Panel.WEB)
+ }
+
+ /** 清凭据回到配置界面；hint 非空时在配置页红字说明回退原因（重新配对成功后自动清掉）。 */
+ private fun performRescan(hint: String?) {
+ terminalStop = false
+ reloadCount = 0
+ stopProbeLoops)
+ UrlStore.clear(this)
+ destroyWebView)
+ KeepAliveService.stop(this)
+ if (hint != null) {
+ tvConfigError.text = hint
+ tvConfigError.visibility = View.VISIBLE
+ }
+ showPanel(Panel.CONFIG)
  }
 
  private fun resetConnectionState) {

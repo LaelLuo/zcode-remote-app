@@ -7,10 +7,10 @@
     <string name="config_scan">扫码配对</string>
     <string name="config_paste_hint">或粘贴远程控制链接</string>
     <string name="config_use_pasted">使用粘贴的链接</string>
+    <string name="config_stale_hint">上次的远程控制链接已失效（被桌面端重置或会话已结束），\n请回到桌面端重新生成二维码扫码配对。</string>
 
     <string name="scan_prompt">对准桌面端远程控制二维码</string>
 
-    <string name="error_terminal">远程控制配对已失效（会话结束或被桌面端重置），需要重新扫码配对。\n\n可以先试试重新加载；仍然失败就用下面的重新扫码。</string>
     <string name="error_exhausted">连接多次自动恢复失败。保持此页打开，会每分钟自动重试一次；也可以手动重试，或重新扫码配对。</string>
     <string name="error_retry">重试</string>
     <string name="error_rescan">重新扫码配对</string>
