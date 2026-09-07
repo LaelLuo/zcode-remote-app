@@ -98,6 +98,8 @@ class MainActivity : AppCompatActivity) {
  private var frameTitle = "" // 会话视图：当前会话标题
  private var framePreview = "" // 会话视图：最新一条消息（lastAssistantPreview 实时滚动）
  private var frameRunningCount = 0 // 列表视图：运行中任务数
+ private var frameWaitingCount = 0 // 列表视图：等输入任务数（liveStatus=waiting）
+ private var frameErrorCount = 0 // 列表视图：失败任务数（liveStatus=error）
  private var frameFramesSince = -1L // JS 侧距最近真实中继帧的秒数（假死判据）
  private var lastLoggedFrameStatus: String? = null // 取证日志去重：status 翻转才打
  private var seenFirstNetwork = false // 回调注册时会立刻回调当前网络一次，跳过
@@ -118,6 +120,8 @@ class MainActivity : AppCompatActivity) {
  frameTitle = sig.optString("title", "")
  framePreview = sig.optString("preview", "")
  frameRunningCount = sig.optInt("runningCount", 0)
+ frameWaitingCount = sig.optInt("waitingCount", 0)
+ frameErrorCount = sig.optInt("errorCount", 0)
  frameFramesSince = sig.optLong("framesSince", -1L)
  // 取证日志：status 翻转才打（5s 心跳不刷屏）——完成/回落的真实帧序列靠它对账
  if (frameStatus != lastLoggedFrameStatus) {
@@ -131,27 +135,38 @@ class MainActivity : AppCompatActivity) {
  // 「进入已完成状态」（浏览老会话/切视图）不是事件，不弹提醒，只更新通知状态 ——
  /** 上次信号的视图（"list"/"session"）——视图切换帧不判事件（跨语境无事件语义）。 */
  private var lastView = ""
- /** 会话视图：上次该会话是否在跑；列表视图：上次是否有任务在跑。 */
- private var lastSessionRunning = false
+ /** 会话视图：上次该会话的 liveStatus 原值（跑/等/停的转换判定要看原值，布尔区分不了等待帧重复）。 */
+ private var lastSessionLive = ""
+ /** 列表视图：上次是否有任务在跑。 */
  private var lastListRunning = false
  /** 会话视图：上次会话标题——会话间切换=换实体，重置基准不产生事件。 */
  private var lastSessionTitle = ""
 
- /** 帧信号 → 通知状态（语义：列表视图=聚合、会话视图=单会话）+ 完成事件提醒。 */
+ /** 帧信号 → 通知状态（语义：列表视图=聚合、会话视图=单会话）+ 完成/等输入事件提醒。 */
  private fun applyFrameState) {
  if (terminalStop || panel != Panel.WEB) return
  val view = if (frameStatus.isNotEmpty)) "session" else "list"
- val sessionRunning = frameStatus == "running" || frameStatus == "waiting"
  // 切换判定在基准滚动前：本帧与上帧比（视图切换 或 会话间切换）
  val contextSwitch = view != lastView || (view == "session" && frameTitle != lastSessionTitle)
+ // 完成事件=同一实体从跑/等变停；等输入事件=同一实体从跑变等（任务需要用户输入了）。
+ // 浏览老会话/切视图不产生任何事件（contextSwitch 挡）
  val doneEvent = !contextSwitch && when (view) {
- "session" -> lastSessionRunning && frameStatus == "completed"
- else -> lastListRunning && frameRunningCount == 0
+ "session" -> (lastSessionLive == "running" || lastSessionLive == "waiting") &&
+ frameStatus == "completed"
+ // 等输入不算「全部停」；任务失败也不算完成（running 转 error 是失败不是完成）
+ else -> lastListRunning && frameRunningCount == 0 && frameWaitingCount == 0 &&
+ frameErrorCount == 0
+ }
+ val waitingEvent = !contextSwitch && when (view) {
+ "session" -> lastSessionLive == "running" && frameStatus == "waiting"
+ else -> lastListRunning && frameRunningCount == 0 && frameWaitingCount > 0
  }
  // 基准滚动到本帧，供下一帧判定
  lastView = view
- if (view == "session") lastSessionTitle = frameTitle
- lastSessionRunning = sessionRunning
+ if (view == "session") {
+ lastSessionTitle = frameTitle
+ lastSessionLive = frameStatus
+ }
  lastListRunning = frameRunningCount > 0
 
  if (view == "list") {
@@ -160,6 +175,20 @@ class MainActivity : AppCompatActivity) {
  this, SessionState.RUNNING,
  titleOverride = getString(R.string.list_title),
  textOverride = "$frameRunningCount 个任务工作中",
+ )
+ } else if (frameWaitingCount > 0) {
+ StatusNotifier.update(
+ this, SessionState.WAITING,
+ titleOverride = getString(R.string.list_title),
+ textOverride = "$frameWaitingCount 个任务等输入",
+ )
+ } else if (frameErrorCount > 0) {
+ // 任务失败（不再误显「全部完成」）：失败原因只在会话视图能给（横幅数据源），
+ // 列表态给失败计数
+ StatusNotifier.update(
+ this, SessionState.SEND_FAILED,
+ titleOverride = getString(R.string.list_title),
+ textOverride = "$frameErrorCount 个任务失败",
  )
  } else if (StatusNotifier.current == SessionState.RUNNING ||
  StatusNotifier.current == SessionState.DONE
@@ -176,9 +205,11 @@ class MainActivity : AppCompatActivity) {
  StatusNotifier.update(this, SessionState.IDLE, titleOverride = getString(R.string.list_title))
  }
  if (doneEvent) StatusNotifier.fireDoneAlert(this)
+ if (waitingEvent) StatusNotifier.fireWaitingAlert(this)
  } else {
  val state = when (frameStatus) {
- "running", "waiting" -> SessionState.RUNNING // waiting=任务活着等输入，按工作中展示（待用户定夺）
+ "running" -> SessionState.RUNNING
+ "waiting" -> SessionState.WAITING // 等输入单列展示（2026-09-07 设计决策「要」）
  "completed" -> SessionState.DONE
  "error" -> SessionState.SEND_FAILED
  else -> null // idle/unknown：帧拿不准，交给轮询兜底
@@ -193,6 +224,7 @@ class MainActivity : AppCompatActivity) {
  textOverride = framePreview.ifBlank { null },
  )
  if (doneEvent) StatusNotifier.fireDoneAlert(this)
+ if (waitingEvent && state == SessionState.WAITING) StatusNotifier.fireWaitingAlert(this)
  }
  }
  }
@@ -583,6 +615,8 @@ class MainActivity : AppCompatActivity) {
  frameTitle = ""
  framePreview = ""
  frameRunningCount = 0
+ frameWaitingCount = 0
+ frameErrorCount = 0
  frameFramesSince = -1L
  }
 

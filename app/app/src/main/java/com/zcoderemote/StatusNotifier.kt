@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat
 enum class SessionState(val ticker: String) {
  IDLE("远程控制"),
  RUNNING("会话工作中"),
+ WAITING("等输入"),
  DONE("会话已完成"),
  SEND_FAILED("发送失败"),
  RECONNECTING("连接恢复中"),
@@ -41,19 +42,26 @@ object StatusNotifier {
  // 完成提醒（2026-09-07 反馈「会话完成直接收岛、没有任何提示」）：常驻渠道是 LOW 无声，
  // 完成这件事实体必须可感知——进入 DONE 时经独立 HIGH 渠道弹横幅+响声提醒，离开 DONE 撤掉。
  // 渠道重要性创建后不可改：首版建成 DEFAULT(3) 实测只进状态栏不弹横幅无声（真机 2026-09-07），
- // 升 HIGH 必须换 ID——done_alerts2；旧 done_alerts 渠道废弃不再使用，留在系统里无害
+ // 升 HIGH 必须换 ID——done_alerts2；旧 done_alerts 渠道废弃不再使用，留在系统里无害。
+ // 同日扩为双提醒：等输入也弹（用户「等待输入最好和完成一样有通知」）——同一 HIGH 渠道，
+ // 渠道名随之改「会话提醒」（渠道名可更新，重要性不可变），两类提醒各自通知 id 并存不覆盖
  private const val ALERT_CHANNEL_ID = "done_alerts2"
- private const val ALERT_NOTIF_ID = 2
+ private const val ALERT_DONE_ID = 2
+ private const val ALERT_WAITING_ID = 3
 
- /** 请求系统提升（上岛）的状态集合：会话状态上岛，连接层状态不上岛。 */
+ /** 请求系统提升（上岛）的状态集合：会话状态上岛，连接层状态不上岛。
+ * WAITING 上岛——等输入恰是需要用户来看的状态，提示价值最高。 */
  private val promotedStates = setOf(
- SessionState.RUNNING, SessionState.DONE, SessionState.SEND_FAILED, SessionState.TERMINAL,
+ SessionState.RUNNING, SessionState.WAITING, SessionState.DONE, SessionState.SEND_FAILED,
+ SessionState.TERMINAL,
  )
 
  /** 状态栏胶囊短文本（显示空间 96dp 内，超过 6 个字符可能被截断为仅图标）。
- * 「工作中」跟 zcode web 端计时按钮同文案（2026-09-07 设计决策统一）。 */
+ * 「工作中」跟 zcode web 端计时按钮同文案（2026-09-07 设计决策统一）；
+ * 「等输入」为 waiting 单列展示（2026-09-07 设计决策「要」）。 */
  private val chipText = mapOf(
  SessionState.RUNNING to "工作中",
+ SessionState.WAITING to "等输入",
  SessionState.DONE to "已完成",
  SessionState.SEND_FAILED to "发送失败",
  SessionState.TERMINAL to "需扫码",
@@ -85,6 +93,7 @@ object StatusNotifier {
  textOverride: String? = null,
  ): Boolean {
  val wasDone = current == SessionState.DONE
+ val wasWaiting = current == SessionState.WAITING
  val titleChanged = title != null && title != sessionTitle
  if (title != null) sessionTitle = title
  val overrideChanged = textOverride != currentTextOverride || titleOverride != currentTitleOverride
@@ -93,11 +102,12 @@ object StatusNotifier {
  currentTextOverride = textOverride
  currentTitleOverride = titleOverride
  notify(ctx)
- // 离开 DONE 撤提醒（新一轮任务开始，旧完成提醒不再挂着）。弹提醒不在这里判：
+ // 离开 DONE/WAITING 撤对应提醒（状态已翻页，旧提醒不再挂着）。弹提醒不在这里判：
  // 「进入 DONE」≠「完成事件」——浏览一个早已完成的会话也会进入 DONE（2026-09-07 真机
- // 反馈「一进已完成的会话就弹」），真事件=同一实体从跑变停，由 MainActivity 的帧层判定后
- // 调 fireDoneAlert
- if (current != SessionState.DONE && wasDone) cancelDoneAlert(ctx)
+ // 反馈「一进已完成的会话就弹」），真事件=同一实体从跑变停/从跑变等，由 MainActivity 的
+ // 帧层判定后调 fireDoneAlert/fireWaitingAlert
+ if (current != SessionState.DONE && wasDone) ctx.getSystemService(NotificationManager::class.java).cancel(ALERT_DONE_ID)
+ if (current != SessionState.WAITING && wasWaiting) ctx.getSystemService(NotificationManager::class.java).cancel(ALERT_WAITING_ID)
  return true
  }
 
@@ -133,32 +143,42 @@ object StatusNotifier {
  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
  )
 
- fun fireDoneAlert(ctx: Context) {
- val nm = ctx.getSystemService(NotificationManager::class.java)
- nm.createNotificationChannel(
+ /** 共用提醒渠道（HIGH：弹横幅+响声）。渠道名可更新，重要性创建后不可变。 */
+ private fun ensureAlertChannel(ctx: Context) {
+ ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(
  NotificationChannel(
  ALERT_CHANNEL_ID,
  ctx.getString(R.string.done_alert_channel_name),
  NotificationManager.IMPORTANCE_HIGH,
  ).apply { enableVibration(true) } // 震动显式开：真机实测渠道默认震动关，HIGH 档横幅要靠它兜感知
  )
- nm.notify(
- ALERT_NOTIF_ID,
- NotificationCompat.Builder(ctx, ALERT_CHANNEL_ID)
- .setSmallIcon(R.drawable.ic_stat_keepalive)
- .setContentTitle(ctx.getString(R.string.done_alert_title))
- .setContentText(
- sessionTitle.ifBlank { ctx.getString(R.string.done_alert_text) }
- )
- .setContentIntent(pendingOpenApp(ctx))
- .setAutoCancel(true)
- .build)
+ }
+
+ fun fireDoneAlert(ctx: Context) {
+ ensureAlertChannel(ctx)
+ ctx.getSystemService(NotificationManager::class.java).notify(
+ ALERT_DONE_ID,
+ buildAlert(ctx, ctx.getString(R.string.done_alert_title), sessionTitle.ifBlank { ctx.getString(R.string.done_alert_text) }),
  )
  }
 
- private fun cancelDoneAlert(ctx: Context) {
- ctx.getSystemService(NotificationManager::class.java).cancel(ALERT_NOTIF_ID)
+ /** 等输入提醒（2026-09-07 用户「等待输入最好和完成一样有通知」）：与完成同渠道同形态。 */
+ fun fireWaitingAlert(ctx: Context) {
+ ensureAlertChannel(ctx)
+ ctx.getSystemService(NotificationManager::class.java).notify(
+ ALERT_WAITING_ID,
+ buildAlert(ctx, ctx.getString(R.string.waiting_alert_title), sessionTitle.ifBlank { ctx.getString(R.string.waiting_alert_text) }),
+ )
  }
+
+ private fun buildAlert(ctx: Context, title: String, text: String) =
+ NotificationCompat.Builder(ctx, ALERT_CHANNEL_ID)
+ .setSmallIcon(R.drawable.ic_stat_keepalive)
+ .setContentTitle(title)
+ .setContentText(text)
+ .setContentIntent(pendingOpenApp(ctx))
+ .setAutoCancel(true)
+ .build)
 
  fun buildNotification(ctx: Context, state: SessionState): Notification {
  // 标题：覆盖值（会话名/任务列表）优先，回退应用名；正文：覆盖值（最新消息/聚合文案）优先，

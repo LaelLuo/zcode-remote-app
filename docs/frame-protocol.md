@@ -32,14 +32,20 @@ turn 运行中）。仅旁听未发送任何帧。
 
 ## 待实证（第二轮采集补）
 
-- turn 异常中断时的取值与是否有独立错误事件——值空间已从 bundle 的校验 schema 实证：
+- ~~turn 异常中断时的取值与是否有独立错误事件~~——值空间已从 bundle 的校验 schema 实证：
  `liveStatus: ["idle","running","waiting","completed","error"]`（zod 枚举，error 值存在）；
- 真实 error 转换样本仍待自然发生抓取
-- waiting 的语义（疑似等用户输入/确认）与通知态映射——待定收口点名
+ **真实 error 会话已于 2026-09-07 验收**（用户手机「hi」会话，provider 认证失败）：task.upserted 增量 liveStatus="error" 翻转正常驱动 SEND_FAILED。**错误详情不在帧数据**——session/task 完整 schema 均无 error 字段，错误对象只存在于会话视图的渲染层（DOM 锚 `[data-error-code]`，React 属性 `error.message`），结构见 decisions 2026-09-07 晚条目
+- ~~waiting 的语义（疑似等用户输入/确认）与通知态映射~~——2026-09-07 设计决策单列「等输入」态（上岛+横幅提醒），列表聚合 waitingCount
 - 会话列表页 vs 会话详情页的订阅差异（当前只旁听不订阅，不影响）
 - `kind` 的分片形态（chunked）与 `payload.kind` 的其他取值（snapshot 已见于 workspaces）
 - 已实证转换样本（第二轮采集）：running→completed 转换走同一 task.upserted 增量，
  字段 status/liveStatus 同步翻转为 "completed"（276 帧）
+
+## 完整 schema（2026-09-07 晚从前端 bundle zod 定义提取，混淆名还原）
+
+- **session**（sessions-index 的 session.upserted.session）：sessionId, workspaceId, parentSessionId?, title, titleSource?, phase, sessionEnded, hasBackgroundWork, pendingInteraction?, pendingInteractionSummary?, goalStatus?, lastActivityAt, lastAssistantPreview?, lastTerminalQuery?, createdAt
+- **task**（tasks-index 的 task.upserted.task）：address{remoteSessionId?, workspacePath, workspaceIdentity?, taskId}, meta{taskId, title, status, workspacePath, workspaceIdentity?, model, provider…}, membership{pinned, archived, active}, sourceAvailability["online","offline"], liveStatus["idle","running","waiting","completed","error"], activity{phase, lastActivityAt, hasBackgroundWork, pendingInteractions?}?, searchSnippets?[]
+- **错误对象**（不在帧内，仅渲染层）：{code, message, traceId, attribution{source, reason, errorPhase, exceptionKind, providerId, modelId, providerKind, transport, statusCode, retryable}, taskId}
 
 ## 对 app 的映射价值（ 设计输入，待定稿）
 

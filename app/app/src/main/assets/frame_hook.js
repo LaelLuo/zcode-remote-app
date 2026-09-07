@@ -130,6 +130,33 @@
  return cur ? cur.title : '';
  }
 
+ // 错误横幅读取（2026-09-07 需求「通知描述用返回的失败原因」）：错误详情不在帧数据里
+ // （session/task 的帧 schema 均无 error 字段，lastAssistantPreview 对错误会话为空），真实源=
+ // 会话视图渲染的错误横幅组件——带 data-error-code 的 DOM 元素，React 属性里挂完整错误对象。
+ // 沿 fiber 向上爬找 error.message（干净文本）；React 结构变了退 textContent 截断
+ function readErrorBanner) {
+ try {
+ var el = document.querySelector('[data-error-code]');
+ if (!el) return '';
+ var fk = null;
+ var keys = Object.keys(el);
+ for (var i = 0; i < keys.length; i++) {
+ if (keys[i].indexOf('__reactFiber$') === 0) { fk = keys[i]; break; }
+ }
+ if (fk) {
+ var f = el[fk];
+ for (var d = 0; d < 6 && f; d++) {
+ var p = f.memoizedProps;
+ if (p && p.error && typeof p.error === 'object' && p.error.message) {
+ return String(p.error.message);
+ }
+ f = f.return;
+ }
+ }
+ return (el.textContent || '').trim).slice(0, 120);
+ } catch (e) { return ''; }
+ }
+
  function decide) {
  var view = isSessionView) ? 'session' : 'list';
  if (view !== lastView) {
@@ -142,9 +169,16 @@
  if (view === 'session' && !curTitle) curTitle = matchSessionTitle);
 
  var runningCount = 0;
- for (var id0 in tasks) if (tasks[id0] && tasks[id0].live === 'running') runningCount++;
+ var waitingCount = 0;
+ var errorCount = 0;
+ for (var id0 in tasks) {
+ if (!tasks[id0]) continue;
+ if (tasks[id0].live === 'running') runningCount++;
+ else if (tasks[id0].live === 'waiting') waitingCount++;
+ else if (tasks[id0].live === 'error') errorCount++;
+ }
 
- var signal = { view: view, status: '', title: '', preview: '', runningCount: runningCount };
+ var signal = { view: view, status: '', title: '', preview: '', runningCount: runningCount, waitingCount: waitingCount, errorCount: errorCount };
  if (view === 'session') {
  var live = '';
  for (var id1 in tasks) {
@@ -153,6 +187,14 @@
  signal.status = live || 'unknown';
  signal.title = curTitle;
  signal.preview = previews[curTitle] || '';
+ // 错误态正文优先用失败原因（横幅 message）；读到后写缓存，列表视图/后续信号也能用
+ if (signal.status === 'error' && !signal.preview) {
+ var reason = readErrorBanner);
+ if (reason) {
+ signal.preview = reason;
+ previews[curTitle] = reason;
+ }
+ }
  }
  signal.framesSince = lastFrameAt ? Math.round((Date.now) - lastFrameAt) / 1000) : -1;
  signal.ts = Date.now);
