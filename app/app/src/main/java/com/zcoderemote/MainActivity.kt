@@ -62,7 +62,6 @@ class MainActivity : AppCompatActivity) {
  private var lastReloadAt = 0L // 上次重载时刻（恢复健康清零用）
  private var pageLoadedOnce = false // 页面至少完整加载过一次
  private var pageErrorVisible = false // 主框架加载失败（Chromium 错误页在显示，探测文本不可信）
- private var terminalStop = false // B 类终态：完全静止，不再自动重载
 
  private val reloadDelays = longArrayOf(0L, 3_000L, 10_000L)
  private val maxReloads = reloadDelays.size
@@ -159,7 +158,7 @@ class MainActivity : AppCompatActivity) {
 
  /** 帧信号 → 通知状态（语义：列表视图=聚合、会话视图=单会话）+ 完成/等输入事件提醒。 */
  private fun applyFrameState) {
- if (terminalStop || panel != Panel.WEB) return
+ if (panel != Panel.WEB) return
  val view = if (frameStatus.isNotEmpty)) "session" else "list"
  // 切换判定在基准滚动前：本帧与上帧比（视图切换 或 会话间切换）
  val contextSwitch = view != lastView || (view == "session" && frameTitle != lastSessionTitle)
@@ -246,7 +245,7 @@ class MainActivity : AppCompatActivity) {
 
  /** 帧桥活着（含页面后台节流的心跳稀疏）→ 状态由帧驱动，轮询让位。 */
  private fun frameSignalFresh): Boolean =
- !terminalStop && SystemClock.elapsedRealtime) - frameSignalAt < 90_000L
+ SystemClock.elapsedRealtime) - frameSignalAt < 90_000L
 
  // —— 探测循环：前台 5s、后台 10s（后台也要较快发现会话完成，驱动灵动岛状态） ——
  private val probeRunnable = object : Runnable {
@@ -260,7 +259,7 @@ class MainActivity : AppCompatActivity) {
  // 密集重载耗尽后的低频自愈 + 帧流假死检测（）：每 60s
  private val slowRetryRunnable = object : Runnable {
  override fun run) {
- if (!terminalStop && !isFinishing) {
+ if (!isFinishing) {
  if (panel == Panel.ERROR) {
  reloadCount = 0
  hideErrorOverlay)
@@ -299,7 +298,6 @@ class MainActivity : AppCompatActivity) {
  }
  findViewById<Button>(R.id.btnRetry).setOnClickListener {
  reloadCount = 0
- terminalStop = false
  hideErrorOverlay)
  webView?.reload)
  }
@@ -414,7 +412,7 @@ class MainActivity : AppCompatActivity) {
 
  override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
  android.util.Log.d("ZCodeRemote", "onReceivedError main=${request.isForMainFrame} url=${request.url} err=${error.description}")
- if (request.isForMainFrame && panel != Panel.CONFIG && !terminalStop) {
+ if (request.isForMainFrame && panel != Panel.CONFIG) {
  pageErrorVisible = true
  scheduleReload)
  }
@@ -483,7 +481,7 @@ class MainActivity : AppCompatActivity) {
  // —— 断线探测与会话状态 ——
  private fun probeOnce) {
  val wv = webView ?: return
- if (panel != Panel.WEB || terminalStop) return
+ if (panel != Panel.WEB) return
  wv.evaluateJavascript(FailureFeatures.probeScript)) { result ->
  // result 形如 "\"A|1|0|%E4%BC%9A...\""（evaluateJavascript 会做一层字符串编码）
  val raw = result?.trim('"') ?: return@evaluateJavascript
@@ -530,15 +528,13 @@ class MainActivity : AppCompatActivity) {
  updateSessionState(running, sendFailed, title)
  }
 
- /** 会话状态优先级：终态 > 重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
+ /** 会话状态优先级：重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
  private fun updateSessionState(running: Boolean, sendFailed: Boolean, title: String) {
  // 配置界面没有会话在跑，通知已随保活服务停止，不该再动
  if (panel == Panel.CONFIG) return
- // ：帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），
- // 轮询让位只做兜底；terminalStop 的终态探测不受让位影响
- if (frameSignalFresh) && !terminalStop && lastProbeHit == null) return
+ // ：帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），轮询让位只做兜底
+ if (frameSignalFresh) && lastProbeHit == null) return
  val newState = when {
- terminalStop -> SessionState.TERMINAL
  lastProbeHit != null || pageErrorVisible || recentlyReloaded) -> SessionState.RECONNECTING
  sendFailed -> SessionState.SEND_FAILED
  running -> SessionState.RUNNING
@@ -558,7 +554,6 @@ class MainActivity : AppCompatActivity) {
  reloadCount > 0 && SystemClock.elapsedRealtime) - lastReloadAt < 30_000L
 
  private fun scheduleReload) {
- if (terminalStop) return
  // 断网期间不烧重载次数：等网络恢复回调来触发
  if (!isNetworkAvailable)) return
  if (reloadCount >= maxReloads) {
@@ -574,7 +569,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  private fun onNetworkRecovered) {
- if (terminalStop || panel == Panel.CONFIG) return
+ if (panel == Panel.CONFIG) return
  // 回调注册时系统会立刻回调一次当前网络：首次跳过，不算网络变化
  if (!seenFirstNetwork) {
  seenFirstNetwork = true
@@ -624,7 +619,6 @@ class MainActivity : AppCompatActivity) {
 
  /** 清凭据回到配置界面；hint 非空时在配置页红字说明回退原因（重新配对成功后自动清掉）。 */
  private fun performRescan(hint: String?) {
- terminalStop = false
  reloadCount = 0
  stopProbeLoops)
  UrlStore.clear(this)
@@ -643,7 +637,6 @@ class MainActivity : AppCompatActivity) {
  confirmCategory = null
  confirmStreak = 0
  reloadCount = 0
- terminalStop = false
  pageLoadedOnce = false
  pageErrorVisible = false
  lastNotifiedRunState = SessionState.IDLE

@@ -10,7 +10,8 @@ import androidx.core.app.NotificationCompat
 
 /**
  * 会话状态（常驻通知显示的内容）。
- * 优先级：TERMINAL > RECONNECTING > SEND_FAILED > RUNNING > DONE > IDLE。
+ * 优先级：RECONNECTING > SEND_FAILED > RUNNING > DONE > IDLE。
+ * 无 TERMINAL 态：链接判死=瞬时回配置界面（清凭据停服务），不驻留在通知上（ 死代码清理）。
  */
 enum class SessionState(val ticker: String) {
  IDLE("远程控制"),
@@ -18,8 +19,7 @@ enum class SessionState(val ticker: String) {
  WAITING("等输入"),
  DONE("会话已完成"),
  SEND_FAILED("发送失败"),
- RECONNECTING("连接恢复中"),
- TERMINAL("需重新扫码");
+ RECONNECTING("连接恢复中");
 }
 
 /**
@@ -27,7 +27,7 @@ enum class SessionState(val ticker: String) {
  *
  * 2026-09-07 ：会话状态经 Android 16 Live Updates 标准通道上岛（超级岛/状态栏胶囊）——
  * 裸提升请求 + 胶囊短文本，HyperOS 3.0.300+ 系统级适配，无需小米平台流程。
- * 上岛集合=会话状态 {RUNNING, DONE, SEND_FAILED, TERMINAL}；连接层状态（IDLE/RECONNECTING）
+ * 上岛集合=会话状态 {RUNNING, DONE, SEND_FAILED}；连接层状态（IDLE/RECONNECTING）
  * 不上岛（用户 2026-09-02 原话排除「重连中」）。ProgressStyle 经单变量实验证明非必需后，
  * 设计决策去掉（会话无进度数值，进度形态是装饰）。小米私有 miui.focus
  * 通道的旧结论与存档见 git 9c2eea2。
@@ -53,7 +53,6 @@ object StatusNotifier {
  * WAITING 上岛——等输入恰是需要用户来看的状态，提示价值最高。 */
  private val promotedStates = setOf(
  SessionState.RUNNING, SessionState.WAITING, SessionState.DONE, SessionState.SEND_FAILED,
- SessionState.TERMINAL,
  )
 
  /** 状态栏胶囊短文本（显示空间 96dp 内，超过 6 个字符可能被截断为仅图标）。
@@ -64,7 +63,6 @@ object StatusNotifier {
  SessionState.WAITING to "等输入",
  SessionState.DONE to "已完成",
  SessionState.SEND_FAILED to "发送失败",
- SessionState.TERMINAL to "需扫码",
  )
 
  @Volatile
