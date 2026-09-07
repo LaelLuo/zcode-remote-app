@@ -12,7 +12,8 @@
  var previews = {}; // 会话标题 -> lastAssistantPreview（session.upserted 的实时回复预览）
  var lastFrameAt = 0; // 最近一次真实中继帧的 epoch ms
  var pendingReport = 0; // 即时上报的合并定时器（帧风暴时 300ms 合并一次）
- var pairState = ''; // 最近一次 pair_status_ack 的值（waiting|matched）——WS close 层终态判定的输入
+ var pairState = ''; // 最近一次 pair_status_ack 的值（waiting|matched）——诊断观察
+ var everData = false; // 收到过 data 帧=配对成功过（close 层终态判定：waiting 期无任何 data 帧）
 
  // 状态变化即时上报：300ms 合并窗口（bootstrap 后初始帧风暴不去逐帧触发 DOM 读取）
  function scheduleReport) {
@@ -22,6 +23,7 @@
 
  // —— 帧解析：外层 {type:"data"} → payload.dataBase64 → 字节级跳二进制头 → UTF-8 JSON ——
  function extractDataEvents(outer) {
+ everData = true; // data 帧=工作区数据，只有配对成功后中继才推
  var payload = outer.payload || {};
  if (payload.dataBase64) {
  try {
@@ -101,7 +103,14 @@
  var outer = JSON.parse(text);
  if (outer.type === 'data') extractDataEvents(outer);
  else if (outer.type === 'error') reportRelayError(outer);
- else if (outer.type === 'pair_status_ack') pairState = String(outer.pair_status || '');
+ else if (outer.type === 'pair_status_ack') {
+ var ps = String(outer.pair_status || '');
+ if (ps !== pairState) {
+ pairState = ps;
+ // 诊断：pair_status_ack 到达与取值可见（close 层判定的输入）
+ try { bridge.onSignal('{"life":"pair","pairState":"' + ps + '"}'); } catch (e) {}
+ }
+ }
  } catch (e) { /* 非 JSON 帧忽略 */ }
  }
 
@@ -121,14 +130,17 @@
  }
 
  // waiting 超时无 WS 信号（纯客户端 30s 定时器），但 enterTerminalFailure 会先
- // socket.close) 再渲染错误页——close(1000)@waiting 就是超时终局的第一手瞬间：
- // 网络瞬断的 close 是 1006 且不干净，不会误报；matched 态不判（被踢走 error 帧层）
+ // socket.close) 再渲染错误页——close 就是超时终局的第一手瞬间（实测比 UI 早约 0.5s）。
+ // 判据（2026-09-08 真机取证）：JS close) 无参在 WebView 上 code=1005（非 1000）；
+ // waiting 期零 data 帧（data=配对成功才推），故「从未收到 data 帧 + close(1005)」=终局。
+ // 网络闪断是 1006 且配对成功后断线 everData=true，都不误判（页面自愈重连）
  function reportCloseSignal(code) {
  try {
- if (pairState === 'waiting' && code === 1000) {
+ if (!everData && code === 1005) {
  bridge.onSignal('{"terminal":"invalid-mobile-connection","via":"ws-close"}');
  } else {
- bridge.onSignal('{"life":"close","code":' + code + '}');
+ // life 诊断信号：Kotlin 记日志（close 层为何未判终态的取证面——code/everData）
+ bridge.onSignal('{"life":"close","code":' + code + ',"everData":' + everData + '}');
  }
  } catch (e) { /* 桥异常静默 */ }
  }

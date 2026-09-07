@@ -115,13 +115,17 @@ class MainActivity : AppCompatActivity) {
 
  private fun onFrameSignal(json: String) {
  val sig = try { JSONObject(json) } catch (_: Exception) { return }
- if (sig.has("life")) return // WS open/close 生命周期：只旁听记录，不驱动（假死检测兜底）
+ if (sig.has("life")) {
+ // 只旁听不驱动；close 的 code/pairState 是「close 层为何未判终态」的取证面
+ Log.d("FrameSignal", json)
+ return
+ }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
  // 一个量级）：直接清凭据回配置界面。panel 守卫挡 WebView 销毁竞态期的重复信号
  val terminalCode = sig.optString("terminal", "")
  if (terminalCode.isNotEmpty)) {
  if (panel == Panel.WEB) {
- Log.i("FrameSignal", "terminal='$terminalCode' -> rescan")
+ Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
  performRescan(getString(R.string.config_stale_hint))
  }
  return
