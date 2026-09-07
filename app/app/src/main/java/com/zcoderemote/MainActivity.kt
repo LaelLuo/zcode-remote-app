@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun rescan(hint: String?) {
- performRescan(hint ?: getString(R.string.config_stale_hint))
+ performRescan(hint)
  }
 
  override fun showExhausted) {
@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun hasNetwork): Boolean = isNetworkAvailable)
- })
+ }, defaultTerminalHint = getString(R.string.config_stale_hint))
 
  // 会话状态基准（瞬态覆盖不污染）——会话层，不属于连接状态机
  private var lastNotifiedRunState: SessionState = SessionState.IDLE
@@ -321,8 +321,6 @@ class MainActivity : AppCompatActivity) {
  })
 
  registerNetworkCallback)
- handler.post(probeRunnable)
- handler.post(slowRetryRunnable)
 
  val stored = UrlStore.load(this)
  if (stored != null) enterWeb(stored) else showPanel(Panel.CONFIG)
@@ -377,6 +375,11 @@ class MainActivity : AppCompatActivity) {
  if (webView == null) {
  webContainer.addView(createWebView))
  }
+ // 探测/慢重试循环在此（重）启动：performRescan 的 stopProbeLoops 清掉过它们，
+ // 第二次扫码起若不重启，降级探测/EXHAUSTED 自愈/假死检测全部失效（review P2-1）
+ stopProbeLoops)
+ handler.post(probeRunnable)
+ handler.post(slowRetryRunnable)
  machine.onEnterWeb)
  resetFrameState)
  showPanel(Panel.WEB)

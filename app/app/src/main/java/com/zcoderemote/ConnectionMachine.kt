@@ -15,7 +15,7 @@ import android.os.SystemClock
  * CONFIG 无凭据/已回配置。链接判死是瞬时迁移到 CONFIG（清凭据停服务），
  * 没有驻留的「终态」——这是 3a7cdc4 之后的既定行为， 删除死分支后定型。
  */
-class ConnectionMachine(private val actor: Actor) {
+class ConnectionMachine(private val actor: Actor, private val defaultTerminalHint: String) {
 
  enum class State { OK, RECONNECTING, EXHAUSTED, CONFIG }
 
@@ -23,7 +23,7 @@ class ConnectionMachine(private val actor: Actor) {
  /** 延迟 delayMs 毫秒重载 WebView（0=立即）。 */
  fun reloadAfter(delayMs: Long)
 
- /** 清凭据回配置界面；hint 非空=配置页红字原因。 */
+ /** 清凭据回配置界面；hint=null=无提示（用户主动重扫），非空=红字原因。 */
  fun rescan(hint: String?)
 
  /** 重载耗尽：显示错误覆盖层（文案由实现侧取资源）。 */
@@ -163,7 +163,7 @@ class ConnectionMachine(private val actor: Actor) {
  confirmCategory = null
  if (hit == "B") {
  state = State.CONFIG
- actor.rescan(null) // null=实现侧取默认失效提示文案
+ actor.rescan(defaultTerminalHint)
  } else {
  scheduleReload)
  }
