@@ -53,3 +53,34 @@ turn 运行中）。仅旁听未发送任何帧。
  （任一订阅到即真，与当前打开哪个会话视图无关——比 DOM 探测强的点）
 - DONE/SEND_FAILED 判定=待第二轮样本
 - 假死检测=帧流空闲 + 声称 running（）
+
+## 传输层控制帧与终态分发（2026-09-08 从 remote-bundle.js 逆向，本轮已装机三层终态感知）
+
+WS 入站消息（onmessage 顶层 JSON）分发器（伪代码还原）：
+
+```
+switch (msg.type) {
+ case "pair_status_ack": applyPairStatus(msg.pair_status); break // waiting|matched
+ case "data": handleDataPayload(msg.payload); break // 上述任务/会话帧
+ case "error": handleRelayError(msg.code, msg.message); break
+}
+```
+
+**relay error 帧的码表**（handleRelayError 语义，app 的 reportRelayError 照抄）：
+
+- `KICKED` → 终态 session-conflict（被桌面端重置/踢出）
+- `AUTH_FAILED` / `WRONG_PARAM` → 终态 invalid-mobile-connection
+- `DEVICE_OFFLINE` → 可恢复（recoverFromDeviceOffline）
+- `INTERNAL` → 可恢复（已配过对则转等待桌面端）
+- 未知码 → 终态 relay-unavailable（官方兜底分支）
+
+**enterTerminalFailure 五条路径**：上述 error 帧 + 「等待配对超时」（纯客户端 30s 定时器
+`waitingTimeoutMs??3e4`，state 仍 waiting 即判死，无 WS 信号）+「桌面离线宽限」
+（desktopOfflineGraceMs??15e3）。落地动作：setState(`kicked`|`error`) + options.onFailure +
+socket.close)；React 渲染挂 `data-error-code="<reason>"` 的错误组件（任务错误横幅同款组件，
+code 值域不同）。
+
+**app 三层终态感知**（3a7cdc4）：① WS error 帧直报（毫秒级，主路径）② MutationObserver 盯
+data-error-code 白名单四码（500ms 合并，覆盖 30s 超时这类无帧场景）③ probe DOM 文本轮询
+（5s×2 确认兜底，特征补两条长句防短串被聊天内容污染）。三层全通向 performRescan
+（清凭据回配置界面+红字原因）。
