@@ -53,18 +53,35 @@ class MainActivity : AppCompatActivity) {
 
  private val handler = Handler(Looper.getMainLooper))
 
- // —— 断线探测与重载调度状态 ——
- private var lastProbeHit: String? = null // 最近一次探测命中类别（A/B），null=健康
- private var confirmCategory: String? = null // 去抖：当前连续命中的类别
- private var confirmStreak = 0 // 去抖：连续命中次数
- private var lastNotifiedRunState: SessionState = SessionState.IDLE // 会话状态基准（瞬态覆盖不污染）
- private var reloadCount = 0 // 本轮连续自动重载次数
- private var lastReloadAt = 0L // 上次重载时刻（恢复健康清零用）
- private var pageLoadedOnce = false // 页面至少完整加载过一次
- private var pageErrorVisible = false // 主框架加载失败（Chromium 错误页在显示，探测文本不可信）
+ // —— 连接层状态机（）：重载/回配置/连接层通知的唯一决策处，信号源只报事实 ——
+ private val machine = ConnectionMachine(object : ConnectionMachine.Actor {
+ override fun reloadAfter(delayMs: Long) {
+ handler.postDelayed({ webView?.reload) }, delayMs)
+ }
 
- private val reloadDelays = longArrayOf(0L, 3_000L, 10_000L)
- private val maxReloads = reloadDelays.size
+ override fun rescan(hint: String?) {
+ performRescan(hint ?: getString(R.string.config_stale_hint))
+ }
+
+ override fun showExhausted) {
+ showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
+ }
+
+ override fun hideExhausted) {
+ hideErrorOverlay)
+ }
+
+ override fun notifyReconnecting) {
+ if (panel == Panel.WEB || panel == Panel.ERROR) {
+ StatusNotifier.update(this@MainActivity, SessionState.RECONNECTING)
+ }
+ }
+
+ override fun hasNetwork): Boolean = isNetworkAvailable)
+ })
+
+ // 会话状态基准（瞬态覆盖不污染）——会话层，不属于连接状态机
+ private var lastNotifiedRunState: SessionState = SessionState.IDLE
 
  // 文件上传回调（给 agent 发附件）
  private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -92,8 +109,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  // —— 帧拦截：注入脚本旁听中继帧，提炼任务状态经桥上报（只听不发） ——
- /** 帧桥最近一次上报时刻（elapsedRealtime）——新鲜=帧桥活着，轮询让位。 */
- private var frameSignalAt = 0L
+ /** 帧桥最近一次上报时刻由 ConnectionMachine 记账（onFrameSignal）。 */
  private var frameStatus = "" // 会话视图：当前会话 liveStatus（running/completed/error/…）
  private var frameTitle = "" // 会话视图：当前会话标题
  private var framePreview = "" // 会话视图：最新一条消息（lastAssistantPreview 实时滚动）
@@ -120,16 +136,16 @@ class MainActivity : AppCompatActivity) {
  return
  }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
- // 一个量级）：直接清凭据回配置界面。panel 守卫挡 WebView 销毁竞态期的重复信号
+ // 一个量级）→ 状态机瞬时迁移回配置（CONFIG 守卫挡 WebView 销毁竞态期的重复信号）
  val terminalCode = sig.optString("terminal", "")
  if (terminalCode.isNotEmpty)) {
- if (panel == Panel.WEB) {
+ if (machine.state != ConnectionMachine.State.CONFIG) {
  Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
- performRescan(getString(R.string.config_stale_hint))
+ machine.onTerminal(getString(R.string.config_stale_hint))
  }
  return
  }
- frameSignalAt = SystemClock.elapsedRealtime)
+ machine.onFrameSignal)
  frameStatus = sig.optString("status", "")
  frameTitle = sig.optString("title", "")
  framePreview = sig.optString("preview", "")
@@ -243,14 +259,14 @@ class MainActivity : AppCompatActivity) {
  }
  }
 
- /** 帧桥活着（含页面后台节流的心跳稀疏）→ 状态由帧驱动，轮询让位。 */
- private fun frameSignalFresh): Boolean =
- SystemClock.elapsedRealtime) - frameSignalAt < 90_000L
+ /** 帧桥活着（新鲜度分档见 ConnectionMachine）→ 状态由帧驱动，轮询让位。 */
+ private fun frameSignalFresh): Boolean = machine.frameSignalFresh)
 
- // —— 探测循环：前台 5s、后台 10s（后台也要较快发现会话完成，驱动灵动岛状态） ——
+ // —— 探测循环：唯一职责是降级模式下的 DOM 兜底（：注入脚本报平安新鲜时
+ // 不执行任何 evaluateJavascript），节拍 5s 只是轮询降级开关本身 ——
  private val probeRunnable = object : Runnable {
  override fun run) {
- probeOnce)
+ if (machine.shouldProbeDom)) probeOnce)
  val delay = if (panel == Panel.WEB) 5_000L else 10_000L
  handler.postDelayed(this, delay)
  }
@@ -259,22 +275,15 @@ class MainActivity : AppCompatActivity) {
  // 密集重载耗尽后的低频自愈 + 帧流假死检测（）：每 60s
  private val slowRetryRunnable = object : Runnable {
  override fun run) {
- if (!isFinishing) {
- if (panel == Panel.ERROR) {
- reloadCount = 0
- hideErrorOverlay)
- webView?.reload)
- } else {
- // 假死：帧桥活着（心跳在）+ 当前显示运行中 + JS 侧长时间无真实中继帧
+ if (!isFinishing && !machine.onSlowTick)) {
+ // 假死：JS 活着（心跳在）+ 当前显示运行中 + JS 侧长时间无真实中继帧
  // —— 页面自认连接活着但数据已冻结，任何看页面的检测都测不出，靠帧流空闲判定
- val frameAlive = SystemClock.elapsedRealtime) - frameSignalAt < 90_000L
  val stalled = frameFramesSince > 180
- if (frameAlive && stalled &&
- StatusNotifier.current == SessionState.RUNNING && pageLoadedOnce
+ if (machine.jsAlive) && stalled &&
+ StatusNotifier.current == SessionState.RUNNING && machine.pageLoadedOnce
  ) {
  frameFramesSince = 0 // 触发重载期间不再重复判假死
- scheduleReload)
- }
+ machine.onStallDetected)
  }
  }
  handler.postDelayed(this, 60_000L)
@@ -296,12 +305,8 @@ class MainActivity : AppCompatActivity) {
  findViewById<Button>(R.id.btnUsePasted).setOnClickListener {
  acceptLink(etUrl.text.toString))
  }
- findViewById<Button>(R.id.btnRetry).setOnClickListener {
- reloadCount = 0
- hideErrorOverlay)
- webView?.reload)
- }
- findViewById<Button>(R.id.btnRescan).setOnClickListener { performRescan(null) }
+ findViewById<Button>(R.id.btnRetry).setOnClickListener { machine.onUserRetry) }
+ findViewById<Button>(R.id.btnRescan).setOnClickListener { machine.onUserRescan) }
 
  // 返回键：会话/列表页优先页面内后退（SPA 路由进 WebView history），退无可退
  // 回桌面但 app 不死（保活+WebView 继续跑，监控常驻语义）；配置页正常退出
@@ -329,6 +334,17 @@ class MainActivity : AppCompatActivity) {
  getSystemService(ConnectivityManager::class.java)
  .unregisterNetworkCallback(networkCallback)
  destroyWebView)
+ }
+
+ // 前后台变化喂状态机：新鲜度阈值分档（前台 15s 严格、后台 90s 容忍 WebView 节流压稀心跳）
+ override fun onResume) {
+ super.onResume)
+ machine.onForegroundChanged(true)
+ }
+
+ override fun onPause) {
+ super.onPause)
+ machine.onForegroundChanged(false)
  }
 
  // 不调用 webView.onPause)：后台保持 JS 心跳运行是本 app 的核心（前台服务保活配合）。
@@ -361,7 +377,8 @@ class MainActivity : AppCompatActivity) {
  if (webView == null) {
  webContainer.addView(createWebView))
  }
- resetConnectionState)
+ machine.onEnterWeb)
+ resetFrameState)
  showPanel(Panel.WEB)
  StatusNotifier.update(this, SessionState.IDLE)
  webView?.loadUrl(url)
@@ -401,8 +418,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun onPageFinished(view: WebView, url: String?) {
- pageLoadedOnce = true
- pageErrorVisible = false
+ machine.onPageFinished)
  // API<33 无 addDocumentStartJavaScript：加载后补注入（晚于本次建连，
  // 下次 reload 起全量生效——弱兜底，主路径是 33+ 文档创建时注入）
  if (Build.VERSION.SDK_INT < 33) {
@@ -412,9 +428,8 @@ class MainActivity : AppCompatActivity) {
 
  override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
  android.util.Log.d("ZCodeRemote", "onReceivedError main=${request.isForMainFrame} url=${request.url} err=${error.description}")
- if (request.isForMainFrame && panel != Panel.CONFIG) {
- pageErrorVisible = true
- scheduleReload)
+ if (request.isForMainFrame) {
+ machine.onPageMainError)
  }
  }
 
@@ -424,7 +439,8 @@ class MainActivity : AppCompatActivity) {
  val stored = UrlStore.load(this@MainActivity)
  if (stored != null && panel == Panel.WEB) {
  webContainer.addView(createWebView))
- resetConnectionState)
+ machine.onEnterWeb)
+ resetFrameState)
  webView?.loadUrl(stored)
  }
  return true
@@ -492,50 +508,24 @@ class MainActivity : AppCompatActivity) {
  // 发送失败与 turn 运行中互斥：run 是更可靠的信号，矛盾时忽略 sf
  val sendFailed = parts[2] == "1" && !running
  val title = try { java.net.URLDecoder.decode(parts[3], "UTF-8") } catch (_: Exception) { "" }
- android.util.Log.d("ZCodeRemote", "probe fail=$hit run=$running sf=$sendFailed title=$title loaded=$pageLoadedOnce err=$pageErrorVisible reloads=$reloadCount")
- onProbeResult(hit, running, sendFailed, title)
- }
- }
-
- private fun onProbeResult(hit: String?, running: Boolean, sendFailed: Boolean, title: String) {
- lastProbeHit = hit
- if (hit == null) {
- confirmStreak = 0
- confirmCategory = null
- // 重载后保持健康 60s，视为真恢复，计数清零
- if (reloadCount > 0 && SystemClock.elapsedRealtime) - lastReloadAt > 60_000L) {
- reloadCount = 0
- }
- } else {
- if (hit == confirmCategory) confirmStreak++ else {
- confirmCategory = hit
- confirmStreak = 1
- }
- // 连续 2 次命中才动作，过滤加载瞬间的闪现文本
- if (confirmStreak >= 2) {
- confirmStreak = 0
- confirmCategory = null
- if (hit == "B") {
- // ：终态=凭据已死，重载无意义，直接清凭据回配置界面（带原因提示）。
- // return 跳过末尾的 updateSessionState——保活服务已停，别再动通知
- performRescan(getString(R.string.config_stale_hint))
- return
- } else {
- scheduleReload)
- }
- }
- }
+ android.util.Log.d("ZCodeRemote", "probe fail=$hit run=$running sf=$sendFailed title=$title state=${machine.state}")
+ // 终态由 machine 决策（去抖+回配置）；会话状态兜底只在降级模式有意义
+ machine.onProbeHit(hit)
+ if (machine.state != ConnectionMachine.State.CONFIG) {
  updateSessionState(running, sendFailed, title)
  }
+ }
+ }
 
- /** 会话状态优先级：重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
+ /** 会话状态兜底（降级模式）：优先级 重连中 > 发送失败 > 运行中 > 已完成/空闲。 */
  private fun updateSessionState(running: Boolean, sendFailed: Boolean, title: String) {
  // 配置界面没有会话在跑，通知已随保活服务停止，不该再动
  if (panel == Panel.CONFIG) return
  // ：帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），轮询让位只做兜底
- if (frameSignalFresh) && lastProbeHit == null) return
+ if (frameSignalFresh) && machine.lastProbeHit == null) return
  val newState = when {
- lastProbeHit != null || pageErrorVisible || recentlyReloaded) -> SessionState.RECONNECTING
+ machine.lastProbeHit != null || machine.pageErrorVisible || machine.recentlyReloaded) ->
+ SessionState.RECONNECTING
  sendFailed -> SessionState.SEND_FAILED
  running -> SessionState.RUNNING
  else -> when (lastNotifiedRunState) {
@@ -550,24 +540,6 @@ class MainActivity : AppCompatActivity) {
  StatusNotifier.update(this, newState, title.ifBlank { null })
  }
 
- private fun recentlyReloaded): Boolean =
- reloadCount > 0 && SystemClock.elapsedRealtime) - lastReloadAt < 30_000L
-
- private fun scheduleReload) {
- // 断网期间不烧重载次数：等网络恢复回调来触发
- if (!isNetworkAvailable)) return
- if (reloadCount >= maxReloads) {
- StatusNotifier.update(this, SessionState.RECONNECTING)
- showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
- return
- }
- StatusNotifier.update(this, SessionState.RECONNECTING)
- val delay = reloadDelays[reloadCount]
- reloadCount++
- lastReloadAt = SystemClock.elapsedRealtime)
- handler.postDelayed({ webView?.reload) }, delay)
- }
-
  private fun onNetworkRecovered) {
  if (panel == Panel.CONFIG) return
  // 回调注册时系统会立刻回调一次当前网络：首次跳过，不算网络变化
@@ -575,21 +547,9 @@ class MainActivity : AppCompatActivity) {
  seenFirstNetwork = true
  return
  }
- // 错误页（密集重载已耗尽）：网络回来了立即重试
- if (panel == Panel.ERROR) {
- reloadCount = 0
- hideErrorOverlay)
- scheduleReload)
- return
- }
- // ：网络切换（Wi-Fi↔流量/换 Wi-Fi）必然弄死页面的中继连接（源地址变了，
- // 页面却收不到断开信号——实测的假死场景）。已加载过页面就无条件重载，
- // 不再等页面表现出不健康（假死恰恰是「没有任何表现」）
- if (pageLoadedOnce) {
- scheduleReload)
- } else if (lastProbeHit != null || pageErrorVisible) {
- scheduleReload)
- }
+ // 语义（重载/耗尽决策在 ConnectionMachine）：网络切换必然弄死页面的中继连接
+ // （源地址变了页面却收不到断开信号），已加载过页面就无条件重载
+ machine.onNetworkRecovered)
  }
 
  private fun isNetworkAvailable): Boolean {
@@ -617,9 +577,8 @@ class MainActivity : AppCompatActivity) {
  if (panel == Panel.ERROR) showPanel(Panel.WEB)
  }
 
- /** 清凭据回到配置界面；hint 非空时在配置页红字说明回退原因（重新配对成功后自动清掉）。 */
+ /** 清凭据回到配置界面（ConnectionMachine.Actor.rescan 的实现；hint 非空=红字原因）。 */
  private fun performRescan(hint: String?) {
- reloadCount = 0
  stopProbeLoops)
  UrlStore.clear(this)
  destroyWebView)
@@ -632,16 +591,9 @@ class MainActivity : AppCompatActivity) {
  showPanel(Panel.CONFIG)
  }
 
- private fun resetConnectionState) {
- lastProbeHit = null
- confirmCategory = null
- confirmStreak = 0
- reloadCount = 0
- pageLoadedOnce = false
- pageErrorVisible = false
+ /** 帧信号清零（连接层状态由 ConnectionMachine.onEnterWeb 负责）：reload 后 JS 重新注入，旧信号不作数。 */
+ private fun resetFrameState) {
  lastNotifiedRunState = SessionState.IDLE
- // ：帧信号一并清零（reload 后 JS 重新注入，旧信号不作数）
- frameSignalAt = 0L
  frameStatus = ""
  frameTitle = ""
  framePreview = ""
