@@ -367,6 +367,7 @@ class MainActivity : AppCompatActivity) {
 
  val stored = UrlStore.load(this)
  if (stored != null) enterWeb(stored) else showPanel(Panel.CONFIG)
+ handleNavIntent(intent) // 冷启动路径的通知直达（onNewIntent 只覆盖活动态）
  }
 
  override fun onDestroy) {
@@ -388,7 +389,94 @@ class MainActivity : AppCompatActivity) {
  machine.onForegroundChanged(false)
  }
 
+ // —— 通知直达会话（2026-09-09 需求）：通知 extra 带目标任务标题，点击后页面导航过去 ——
+
+ private var pendingNavTitle: String? = null
+
+ override fun onNewIntent(intent: Intent) {
+ super.onNewIntent(intent)
+ handleNavIntent(intent)
+ }
+
+ private fun handleNavIntent(intent: Intent?) {
+ val t = intent?.getStringExtra("openTaskTitle")?.takeIf { it.isNotBlank) } ?: return
+ pendingNavTitle = t
+ tryNavigate)
+ }
+
+ /** 导航到目标任务会话页；页面未就绪时挂起（onPageFinished 会再调）。 */
+ private fun tryNavigate) {
+ val title = pendingNavTitle ?: return
+ val wv = webView ?: return
+ if (panel != Panel.WEB) return
+ // 当前视图判定：会话视图且目标≠当前会话 → 先回列表（SPA 路由在 WebView history 里），
+ // 600ms 后点目标任务；列表视图直接点
+ wv.evaluateJavascript(NavScript.CHECK_VIEW) { res ->
+ when (res?.trim('"')) {
+ "session" -> wv.evaluateJavascript(NavScript.h1)) { h1 ->
+ if (h1?.trim('"') == title) {
+ pendingNavTitle = null // 已在目标会话
+ } else if (wv.canGoBack)) {
+ pendingNavTitle = null
+ wv.goBack)
+ handler.postDelayed({ clickTaskItem(title) }, 600)
+ }
+ }
+ "list" -> {
+ pendingNavTitle = null
+ clickTaskItem(title)
+ }
+ }
+ }
+ }
+
+ /** 在任务列表里点目标任务项（cdp-click-text 同法：最小匹配元素→滚到可见→合成 click，React 委托响应）。 */
+ private fun clickTaskItem(title: String) {
+ val wv = webView ?: return
+ if (panel != Panel.WEB) return
+ wv.evaluateJavascript(NavScript.clickTask(title)) { r ->
+ android.util.Log.d("ZCodeRemote", "nav click('$title') -> ${r?.trim('"')}")
+ }
+ }
+
  // 不调用 webView.onPause)：后台保持 JS 心跳运行是本 app 的核心（前台服务保活配合）。
+
+ /** 通知导航的页面脚本（CHECK_VIEW 视图判定与 frame_hook 的 isSessionView 同锚）。 */
+ private object NavScript {
+ const val CHECK_VIEW =
+ """(function){try{var it=document.evaluate("//*[normalize-space(text))='任务会话']",document,null,9,null);return it.singleNodeValue?'session':'list'}catch(e){return 'list'}}))"""
+
+ fun h1) =
+ """(function){try{var h=document.querySelector('h1');return h?(h.textContent||'').trim):''}catch(e){return ''}}))"""
+
+ /** 点目标任务列表项：精确标题优先，前缀+40 字符容差兼容「标题+计时/状态文字」，
+ * 取最小匹配元素滚到可见后派发完整指针事件序列（pointer/mouse/down/up/click——
+ * 只发 click 对监听 pointerdown 的 SPA 无效，实测 CLICKED 但路由不动）。 */
+ fun clickTask(title: String): String {
+ val jsTitle = title.replace("\\", "\\\\").replace("'", "\\'")
+ return """(function){
+var title='$jsTitle';
+var els=document.querySelectorAll('div,li,a,button');
+var best=null;
+for(var i=0;i<els.length;i++){
+ var e=els[i];var t=(e.innerText||'').trim);
+ if(!t)continue;
+ var ok=t===title||(t.indexOf(title)===0&&t.length<title.length+40);
+ if(!ok)continue;
+ if(!best||t.length<best.innerText.trim).length)best=e;
+}
+if(!best)return 'NOT_FOUND';
+best.scrollIntoView({block:'center'});
+setTimeout(function){
+ var go=best;
+ function pe(t){try{go.dispatchEvent(new PointerEvent(t,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,button:0}))}catch(x){}}
+ function me(t){go.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,button:0}))}
+ pe('pointerdown');me('mousedown');pe('pointerup');me('mouseup');go.click);
+},200);
+return 'CLICKED';
+}))"""
+ }
+ }
 
  // —— 配置 ——
  private fun launchScanner) {
@@ -465,6 +553,8 @@ class MainActivity : AppCompatActivity) {
 
  override fun onPageFinished(view: WebView, url: String?) {
  machine.onPageFinished)
+ // 页面就绪后兑现挂起的通知导航（点击通知时 WebView 还在加载的场景）
+ tryNavigate)
  // API<33 无 addDocumentStartJavaScript：加载后补注入（晚于本次建连，
  // 下次 reload 起全量生效——弱兜底，主路径是 33+ 文档创建时注入）
  if (Build.VERSION.SDK_INT < 33) {

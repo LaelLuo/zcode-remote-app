@@ -137,10 +137,14 @@ object StatusNotifier {
  }
  }
 
- private fun pendingOpenApp(ctx: Context): PendingIntent = PendingIntent.getActivity(
- ctx, 0,
+ /** 回 app 的 PendingIntent；taskTitle 非空=通知直达会话（点击后页面导航到该任务）。
+ * requestCode 随 title 变化：不同实体的 PendingIntent 互不覆盖 extra。 */
+ private fun pendingOpenApp(ctx: Context, taskTitle: String? = null): PendingIntent =
+ PendingIntent.getActivity(
+ ctx, taskTitle?.hashCode) ?: 0,
  Intent(ctx, MainActivity::class.java).apply {
  flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+ taskTitle?.takeIf { it.isNotBlank) }?.let { putExtra("openTaskTitle", it) }
  },
  PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
  )
@@ -182,7 +186,8 @@ object StatusNotifier {
  .setSmallIcon(R.drawable.ic_stat_keepalive)
  .setContentTitle(title)
  .setContentText(text)
- .setContentIntent(pendingOpenApp(ctx))
+ // 横幅点击直达该任务的会话页（2026-09-09 需求「点击通知直接进到对应的会话里」）
+ .setContentIntent(pendingOpenApp(ctx, text))
  .setAutoCancel(true)
  .build)
 
@@ -206,7 +211,8 @@ object StatusNotifier {
  .setContentText(shown)
  .setOngoing(true)
  .setOnlyAlertOnce(true)
- .setContentIntent(contentIntent)
+ // 常驻通知点击直达当前会话（列表语境=回 app 原状，不带导航）
+ .setContentIntent(pendingOpenApp(ctx, currentTitleOverride))
  .setCategory(Notification.CATEGORY_SERVICE)
  .addAction(
  NotificationCompat.Action.Builder(
