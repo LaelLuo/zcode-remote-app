@@ -430,13 +430,43 @@ class MainActivity : AppCompatActivity) {
  }
  }
 
- /** 在任务列表里点目标任务项（cdp-click-text 同法：最小匹配元素→滚到可见→合成 click，React 委托响应）。 */
- private fun clickTaskItem(title: String) {
+ /** 在任务列表里原生点击目标任务行：JS 定位+滚到可见（坐标写 window.__navRect），
+ * Kotlin 按坐标派发 MotionEvent（浏览器内核级真事件，与真手指等价）——合成事件
+ * 该页面不认（CDP 实验定案：dispatchMouseEvent 有效/el.click) 全序列无效）。
+ * 页面加载/重载窗口注入会被文档替换丢弃（PENDING）——2 秒退避重试至多 3 次。 */
+ private fun clickTaskItem(title: String, retry: Int = 0) {
  val wv = webView ?: return
  if (panel != Panel.WEB) return
- wv.evaluateJavascript(NavScript.clickTask(title)) { r ->
- android.util.Log.d("ZCodeRemote", "nav click('$title') -> ${r?.trim('"')}")
+ wv.evaluateJavascript(NavScript.locateTask(title), null)
+ handler.postDelayed({
+ val cur = webView ?: return@postDelayed
+ cur.evaluateJavascript("window.__navRect||'PENDING'") { res ->
+ val raw = res?.trim('"') ?: return@evaluateJavascript
+ if (raw == "PENDING") {
+ android.util.Log.d("ZCodeRemote", "nav locate('$title') pending, retry=$retry")
+ if (retry < 3) handler.postDelayed({ clickTaskItem(title, retry + 1) }, 2_000L)
+ return@evaluateJavascript
  }
+ if (raw == "NOT_FOUND") {
+ android.util.Log.d("ZCodeRemote", "nav locate('$title') -> NOT_FOUND")
+ return@evaluateJavascript
+ }
+ val parts = raw.split(",")
+ val scale = cur.width.toFloat) / (parts.getOrNull(2)?.toFloatOrNull) ?: return@evaluateJavascript)
+ val x = (parts[0].toFloatOrNull) ?: return@evaluateJavascript) * scale
+ val y = (parts[1].toFloatOrNull) ?: return@evaluateJavascript) * scale
+ val downAt = SystemClock.uptimeMillis)
+ cur.dispatchTouchEvent(
+ android.view.MotionEvent.obtain(downAt, downAt, android.view.MotionEvent.ACTION_DOWN, x, y, 0)
+ )
+ handler.postDelayed({
+ cur.dispatchTouchEvent(
+ android.view.MotionEvent.obtain(downAt, SystemClock.uptimeMillis), android.view.MotionEvent.ACTION_UP, x, y, 0)
+ )
+ }, 60)
+ android.util.Log.d("ZCodeRemote", "nav tap('$title') at ($x,$y) scale=$scale")
+ }
+ }, 550)
  }
 
  // 不调用 webView.onPause)：后台保持 JS 心跳运行是本 app 的核心（前台服务保活配合）。
@@ -449,31 +479,28 @@ class MainActivity : AppCompatActivity) {
  fun h1) =
  """(function){try{var h=document.querySelector('h1');return h?(h.textContent||'').trim):''}catch(e){return ''}}))"""
 
- /** 点目标任务列表项：精确标题优先，前缀+40 字符容差兼容「标题+计时/状态文字」，
- * 取最小匹配元素滚到可见后派发完整指针事件序列（pointer/mouse/down/up/click——
- * 只发 click 对监听 pointerdown 的 SPA 无效，实测 CLICKED 但路由不动）。 */
- fun clickTask(title: String): String {
+ /** 定位目标任务行并滚到可见：400ms 后坐标写入 window.__navRect（"x,y,innerWidth"，
+ * CSS 像素）。合成事件对该页面无效（click/pointer 全序列+fiber 直调均实测不动，
+ * CDP 真实鼠标事件有效）——只负责定位，点击由 Kotlin 侧原生触摸派发。 */
+ fun locateTask(title: String): String {
  val jsTitle = title.replace("\\", "\\\\").replace("'", "\\'")
  return """(function){
 var title='$jsTitle';
-var els=document.querySelectorAll('div,li,a,button');
+var all=document.querySelectorAll('div,li,a,button');
 var best=null;
-for(var i=0;i<els.length;i++){
- var e=els[i];var t=(e.innerText||'').trim);
+for(var i=0;i<all.length;i++){
+ var e=all[i];var t=(e.innerText||'').trim);
  if(!t)continue;
- var ok=t===title||(t.indexOf(title)===0&&t.length<title.length+40);
+ var ok=t===title||(t.indexOf(title)===0&&t.length<title.length+50);
  if(!ok)continue;
  if(!best||t.length<best.innerText.trim).length)best=e;
 }
-if(!best)return 'NOT_FOUND';
+if(!best){window.__navRect='NOT_FOUND';return;}
 best.scrollIntoView({block:'center'});
 setTimeout(function){
- var go=best;
- function pe(t){try{go.dispatchEvent(new PointerEvent(t,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,button:0}))}catch(x){}}
- function me(t){go.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,button:0}))}
- pe('pointerdown');me('mousedown');pe('pointerup');me('mouseup');go.click);
-},200);
-return 'CLICKED';
+ var r=best.getBoundingClientRect);
+ window.__navRect=r.x+r.width/2+','+(r.y+r.height/2)+','+window.innerWidth;
+},400);
 }))"""
  }
  }

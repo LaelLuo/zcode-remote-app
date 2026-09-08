@@ -211,8 +211,8 @@ object StatusNotifier {
  .setContentText(shown)
  .setOngoing(true)
  .setOnlyAlertOnce(true)
- // 常驻通知点击直达当前会话（列表语境=回 app 原状，不带导航）
- .setContentIntent(pendingOpenApp(ctx, currentTitleOverride))
+ // 常驻通知点击直达当前会话（列表语境「任务列表」不是任务名，不带导航回 app 原状）
+ .setContentIntent(pendingOpenApp(ctx, currentTitleOverride?.takeIf { it != ctx.getString(R.string.list_title) }))
  .setCategory(Notification.CATEGORY_SERVICE)
  .addAction(
  NotificationCompat.Action.Builder(
