@@ -97,3 +97,10 @@ performRescan（清凭据回配置界面+红字原因）。
  session-conflict=设备接管/已被其他设备接管、relay-unavailable=中转异常/无法连接中转服务、
  desktop-disconnected=电脑端离线/桌面端已离线（表内混有非终态键如 desktop-bootstrap-timeout，
  按 badge/title 匹配时须限定四码）
+
+## tasks-index 增量 op 全集（2026-09-09 bundle 实证，zod schema 直读）
+
+`task.upserted`（task 全量）与 `task.removed`（仅 address.taskId）——**只有这两个**。
+曾只处理 upserted：已删任务永留本地表（幽灵），叠加「全文 indexOf 配对当前会话」
+对超短标题（hi 等）恒命中，导致已删会话顶替通知标题（实测）。删除 delta 的
+正确处理=从本地表 delete 并触发上报。
