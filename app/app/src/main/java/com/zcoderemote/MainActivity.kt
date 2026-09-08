@@ -187,6 +187,23 @@ class MainActivity : AppCompatActivity) {
  private var lastListRunning = false
  /** 会话视图：上次会话标题——会话间切换=换实体，重置基准不产生事件。 */
  private var lastSessionTitle = ""
+ // 已弹过的事件实体（防重复）：同任务持续 waiting 期间每帧都带事件锚标题，只在首次弹
+ private var lastAlertedWaitingTitle = ""
+ private var lastAlertedDoneTitle = ""
+
+ /** 弹等输入横幅（每实体一次）：title=转态任务名。 */
+ private fun alertWaitingOnce(title: String) {
+ if (title.isBlank) || title == lastAlertedWaitingTitle) return
+ lastAlertedWaitingTitle = title
+ StatusNotifier.fireWaitingAlert(this, title)
+ }
+
+ /** 弹完成横幅（每实体一次）：title=转态任务名。 */
+ private fun alertDoneOnce(title: String) {
+ if (title.isBlank) || title == lastAlertedDoneTitle) return
+ lastAlertedDoneTitle = title
+ StatusNotifier.fireDoneAlert(this, title)
+ }
 
  /** 帧信号 → 通知状态（语义：列表视图=聚合、会话视图=单会话）+ 完成/等输入事件提醒。 */
  private fun applyFrameState) {
@@ -194,6 +211,16 @@ class MainActivity : AppCompatActivity) {
  val view = if (frameStatus.isNotEmpty)) "session" else "list"
  // 切换判定在基准滚动前：本帧与上帧比（视图切换 或 会话间切换）
  val contextSwitch = view != lastView || (view == "session" && frameTitle != lastSessionTitle)
+ // 后台任务事件（会话视图盲区修复，2026-09-08）：用户开着会话 B、后台任务 A 转态时，
+ // 视图语境的事件判定（当前会话翻转/列表聚合翻转）都够不着 A——用帧层事件锚
+ // （任务从 running 翻出瞬间记名）直接弹。当前会话自己的翻转走下面的视图事件路径，
+ // 两者经 alertXxxOnce 同基准防重
+ if (frameWaitingTitle.isNotBlank) && frameWaitingTitle != frameTitle) {
+ alertWaitingOnce(frameWaitingTitle)
+ }
+ if (frameDoneTitle.isNotBlank) && frameDoneTitle != frameTitle) {
+ alertDoneOnce(frameDoneTitle)
+ }
  // 完成事件=同一实体从跑/等变停；等输入事件=同一实体从跑变等（任务需要用户输入了）。
  // 浏览老会话/切视图不产生任何事件（contextSwitch 挡）
  val doneEvent = !contextSwitch && when (view) {
@@ -250,8 +277,8 @@ class MainActivity : AppCompatActivity) {
  } else {
  StatusNotifier.update(this, SessionState.IDLE, titleOverride = getString(R.string.list_title))
  }
- if (doneEvent) StatusNotifier.fireDoneAlert(this, frameDoneTitle.ifBlank { null })
- if (waitingEvent) StatusNotifier.fireWaitingAlert(this, frameWaitingTitle.ifBlank { null })
+ if (doneEvent) alertDoneOnce(frameDoneTitle.ifBlank { frameTitle })
+ if (waitingEvent) alertWaitingOnce(frameWaitingTitle.ifBlank { frameTitle })
  } else {
  val state = when (frameStatus) {
  "running" -> SessionState.RUNNING
@@ -269,8 +296,8 @@ class MainActivity : AppCompatActivity) {
  titleOverride = frameTitle.ifBlank { null },
  textOverride = framePreview.ifBlank { null },
  )
- if (doneEvent) StatusNotifier.fireDoneAlert(this, frameDoneTitle.ifBlank { null })
- if (waitingEvent && state == SessionState.WAITING) StatusNotifier.fireWaitingAlert(this, frameWaitingTitle.ifBlank { null })
+ if (doneEvent) alertDoneOnce(frameDoneTitle.ifBlank { frameTitle })
+ if (waitingEvent && state == SessionState.WAITING) alertWaitingOnce(frameWaitingTitle.ifBlank { frameTitle })
  }
  }
  }
@@ -620,6 +647,10 @@ class MainActivity : AppCompatActivity) {
  frameWaitingCount = 0
  frameErrorCount = 0
  frameFramesSince = -1L
+ frameWaitingTitle = ""
+ frameDoneTitle = ""
+ lastAlertedWaitingTitle = ""
+ lastAlertedDoneTitle = ""
  }
 
  private fun stopProbeLoops) {
