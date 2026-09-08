@@ -416,10 +416,14 @@ class MainActivity : AppCompatActivity) {
  "session" -> wv.evaluateJavascript(NavScript.h1)) { h1 ->
  if (h1?.trim('"') == title) {
  pendingNavTitle = null // 已在目标会话
- } else if (wv.canGoBack)) {
+ } else {
+ // 无论 goBack 有没有 history 都消费掉导航：无 history 的静默放弃
+ // 强好过残留 pendingNavTitle 让之后任意一次页面加载把用户强制跳走
  pendingNavTitle = null
+ if (wv.canGoBack)) {
  wv.goBack)
  handler.postDelayed({ clickTaskItem(title) }, 600)
+ }
  }
  }
  "list" -> {
@@ -448,7 +452,10 @@ class MainActivity : AppCompatActivity) {
  return@evaluateJavascript
  }
  if (raw == "NOT_FOUND") {
- android.util.Log.d("ZCodeRemote", "nav locate('$title') -> NOT_FOUND")
+ // 页面骨架期列表未渲染时目标行找不到——与 PENDING 同待遇重试，
+ // 耗尽静默停当前页（复核修正：此前一次性放弃，冷启动点横幅必经此路）
+ android.util.Log.d("ZCodeRemote", "nav locate('$title') not found, retry=$retry")
+ if (retry < 3) handler.postDelayed({ clickTaskItem(title, retry + 1) }, 2_000L)
  return@evaluateJavascript
  }
  val parts = raw.split(",")
