@@ -83,6 +83,13 @@
  title: (t.meta && t.meta.title) || (prev && prev.title) || ''
  };
  }
+ } else if (d.op === 'task.removed' && d.address && d.address.taskId) {
+ // 删除 delta（协议实证：tasks-index 只有 upserted/removed 两个 op）——
+ // 不处理则已删任务成幽灵，永远参与标题配对与计数（用户已删的「hi」会话顶替通知标题）
+ if (tasks[d.address.taskId]) {
+ delete tasks[d.address.taskId];
+ changed = true;
+ }
  }
  }
  // 任务状态变化即时上报（300ms 合并）；纯心跳式 upsert（状态没变）不触发，
@@ -187,15 +194,18 @@
  }
 
  function matchSessionTitle) {
- var body = document.body ? document.body.innerText : '';
- var cur = null;
+ // 会话视图的 h1=页面自己渲染的当前会话名——在 tasks 里精确找同名。
+ // 旧法「页面全文 indexOf 任务标题」对超短标题是灾难（已删的「hi」会话匹配
+ // 任何含 hi 子串的英文页面，顶替通知标题）；h1 锚+整串相等双重收紧
+ try {
+ var h1 = document.querySelector('h1');
+ var name = h1 ? (h1.textContent || '').trim) : '';
+ if (!name) return '';
  for (var id in tasks) {
- var s = tasks[id];
- if (s.title && body.indexOf(s.title) >= 0) {
- if (!cur || s.live === 'running') cur = s;
+ if (tasks[id] && tasks[id].title === name) return name;
  }
- }
- return cur ? cur.title : '';
+ } catch (e) { /* fallthrough */ }
+ return '';
  }
 
  // 错误横幅读取（2026-09-07 需求「通知描述用返回的失败原因」）：错误详情不在帧数据里
