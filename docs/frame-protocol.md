@@ -80,19 +80,19 @@ switch (msg.type) {
 socket.close)；React 渲染挂 `data-error-code="<reason>"` 的错误组件（任务错误横幅同款组件，
 code 值域不同）。
 
-**app 三层终态感知**（3a7cdc4）：① WS error 帧直报（毫秒级，主路径）② MutationObserver 盯
-data-error-code 白名单四码（500ms 合并，覆盖 30s 超时这类无帧场景）③ probe DOM 文本轮询
-（5s×2 确认兜底，特征补两条长句防短串被聊天内容污染）。三层全通向 performRescan
-（清凭据回配置界面+红字原因）。
+**app 终态感知**（3a7cdc4 起，09-08 定稿）：死亡通知只认两个明确来源——① WS error 帧直报
+（毫秒级，码表照抄官方 handleRelayError）② 终态页 h1 标题双语锚（渲染后 ~0.5s，覆盖 30s
+等待超时这类无错误帧场景）③ probe DOM 文本轮询（降级模式兜底：注入脚本失联才跑）。全通向
+performRescan（清凭据回配置界面+红字原因）。
 
-## 终态感知实测修正（09-08 真机三轮迭代，7e65fb0 定稿）
+## 终态感知实测修正（09-08 真机迭代，e03d708 定稿）
 
 - 传输终态页 `_4t({failure,locale})` 组件不挂任何 data 属性（h1=r.title）——`data-error-code`
  是会话消息错误组件的锚，不可用于传输终态检测（曾挂错真机落空一轮）
-- **WS close 层判 waiting 超时终局（真机 30s 定时器到点 108ms 内命中）**：JS `close)` 无参
- 在 WebView 上 close code=**1005**（非 1000）；waiting 期零 pair_status_ack（pairState 判定
- 不可用）；data 帧只在配对成功后推——判据=「零 data 帧 + close(1005)」。网络闪断 1006、
- 配对后断线 everData=true，均不误判
+- ~~WS close 层判 waiting 超时终局~~（**已退役**）：曾以「零 data 帧+close(1005)」判死并真机
+ 命中 108ms，当天实测网络抖动误清凭据——**页面重连前也主动关旧连接（1005），与超时
+ 自杀无法区分**，撞上刚配对/app 重载后的无数据窗口即误杀。close(1005) 多产生路径不可单独
+ 作判据；等待超时终态由 h1 标题锚兜住（慢半秒、零误杀）。close 事件保留为诊断日志
 - 终态文案映射表（key→双语 badge/title）：invalid-mobile-connection=校验失败/手机连接已失效、
  session-conflict=设备接管/已被其他设备接管、relay-unavailable=中转异常/无法连接中转服务、
  desktop-disconnected=电脑端离线/桌面端已离线（表内混有非终态键如 desktop-bootstrap-timeout，
