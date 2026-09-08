@@ -106,6 +106,16 @@ class MainActivity : AppCompatActivity) {
  override fun onAvailable(network: Network) {
  handler.post { onNetworkRecovered) }
  }
+
+ override fun onLost(network: Network) {
+ // 断网瞬间岛切「重连中」（2026-09-08 改为上岛）：此前无处理，岛停在断网前
+ // 的旧会话态上，断了也看不出来。只做通知展示，重载决策仍由恢复侧驱动
+ handler.post {
+ if (panel == Panel.WEB) {
+ StatusNotifier.update(this@MainActivity, SessionState.RECONNECTING)
+ }
+ }
+ }
  }
 
  // —— 帧拦截：注入脚本旁听中继帧，提炼任务状态经桥上报（只听不发） ——
@@ -117,6 +127,10 @@ class MainActivity : AppCompatActivity) {
  private var frameWaitingCount = 0 // 列表视图：等输入任务数（liveStatus=waiting）
  private var frameErrorCount = 0 // 列表视图：失败任务数（liveStatus=error）
  private var frameFramesSince = -1L // JS 侧距最近真实中继帧的秒数（假死判据）
+ // 事件锚（JS 侧任务从 running 翻出瞬间记名）：列表聚合事件横幅的实体标题，
+ // 防「用户看 A、后台 B 转态、横幅却写 A」的串台（全局 sessionTitle 只反映最近打开的会话）
+ private var frameWaitingTitle = ""
+ private var frameDoneTitle = ""
  private var lastLoggedFrameStatus: String? = null // 取证日志去重：status 翻转才打
  private var seenFirstNetwork = false // 回调注册时会立刻回调当前网络一次，跳过
 
@@ -153,6 +167,8 @@ class MainActivity : AppCompatActivity) {
  frameWaitingCount = sig.optInt("waitingCount", 0)
  frameErrorCount = sig.optInt("errorCount", 0)
  frameFramesSince = sig.optLong("framesSince", -1L)
+ frameWaitingTitle = sig.optString("waitingTitle", "")
+ frameDoneTitle = sig.optString("doneTitle", "")
  // 取证日志：status 翻转才打（5s 心跳不刷屏）——完成/回落的真实帧序列靠它对账
  if (frameStatus != lastLoggedFrameStatus) {
  Log.i("FrameSignal", "status='$frameStatus' running=$frameRunningCount title='${frameTitle}' framesSince=$frameFramesSince")
@@ -234,8 +250,8 @@ class MainActivity : AppCompatActivity) {
  } else {
  StatusNotifier.update(this, SessionState.IDLE, titleOverride = getString(R.string.list_title))
  }
- if (doneEvent) StatusNotifier.fireDoneAlert(this)
- if (waitingEvent) StatusNotifier.fireWaitingAlert(this)
+ if (doneEvent) StatusNotifier.fireDoneAlert(this, frameDoneTitle.ifBlank { null })
+ if (waitingEvent) StatusNotifier.fireWaitingAlert(this, frameWaitingTitle.ifBlank { null })
  } else {
  val state = when (frameStatus) {
  "running" -> SessionState.RUNNING
@@ -253,8 +269,8 @@ class MainActivity : AppCompatActivity) {
  titleOverride = frameTitle.ifBlank { null },
  textOverride = framePreview.ifBlank { null },
  )
- if (doneEvent) StatusNotifier.fireDoneAlert(this)
- if (waitingEvent && state == SessionState.WAITING) StatusNotifier.fireWaitingAlert(this)
+ if (doneEvent) StatusNotifier.fireDoneAlert(this, frameDoneTitle.ifBlank { null })
+ if (waitingEvent && state == SessionState.WAITING) StatusNotifier.fireWaitingAlert(this, frameWaitingTitle.ifBlank { null })
  }
  }
  }

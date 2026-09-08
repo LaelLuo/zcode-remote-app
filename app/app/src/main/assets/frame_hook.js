@@ -14,6 +14,10 @@
  var pendingReport = 0; // 即时上报的合并定时器（帧风暴时 300ms 合并一次）
  var pairState = ''; // 最近一次 pair_status_ack 的值（waiting|matched）——诊断观察
  var everData = false; // 收到过 data 帧=配对成功过（close 层终态判定：waiting 期无任何 data 帧）
+ // 事件锚：任务从 running 翻出的瞬间记名（列表聚合事件的横幅实体来源——计数帧没有"是谁"，
+ // 横幅若用"最近打开的会话"会串台：用户看 A、后台 B 转态，横幅却写 A）
+ var lastWaitingTitle = '';
+ var lastDoneTitle = '';
 
  // 状态变化即时上报：300ms 合并窗口（bootstrap 后初始帧风暴不去逐帧触发 DOM 读取）
  function scheduleReport) {
@@ -67,6 +71,12 @@
  if (id) {
  var live = t.liveStatus || (t.meta && t.meta.status) || 'unknown';
  var prev = tasks[id];
+ // 事件锚：running 翻出的瞬间记名（见 lastWaitingTitle 声明处注释）
+ if (prev && prev.live === 'running' && live !== 'running') {
+ var evTitle = (t.meta && t.meta.title) || prev.title || '';
+ if (live === 'waiting') lastWaitingTitle = evTitle;
+ else if (live === 'completed' || live === 'error') lastDoneTitle = evTitle;
+ }
  if (!prev || prev.live !== live) changed = true;
  tasks[id] = {
  live: live,
@@ -255,6 +265,8 @@
  }
  }
  signal.terminal = readTerminalCode);
+ signal.waitingTitle = lastWaitingTitle;
+ signal.doneTitle = lastDoneTitle;
  signal.framesSince = lastFrameAt ? Math.round((Date.now) - lastFrameAt) / 1000) : -1;
  signal.ts = Date.now);
  return signal;

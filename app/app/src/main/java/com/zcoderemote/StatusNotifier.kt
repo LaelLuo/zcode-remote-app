@@ -49,10 +49,13 @@ object StatusNotifier {
  private const val ALERT_DONE_ID = 2
  private const val ALERT_WAITING_ID = 3
 
- /** 请求系统提升（上岛）的状态集合：会话状态上岛，连接层状态不上岛。
+ /** 请求系统提升（上岛）的状态集合：会话状态上岛；连接层 IDLE 不上（空闲挂岛无信息量）。
+ * RECONNECTING 上岛（2026-09-08 改为「改吧」，推翻 09-07 自定的不上岛推导）：
+ * 断网/重载期间岛显示「重连中」，比岛消失或停在旧会话态可感知。
  * WAITING 上岛——等输入恰是需要用户来看的状态，提示价值最高。 */
  private val promotedStates = setOf(
  SessionState.RUNNING, SessionState.WAITING, SessionState.DONE, SessionState.SEND_FAILED,
+ SessionState.RECONNECTING,
  )
 
  /** 状态栏胶囊短文本（显示空间 96dp 内，超过 6 个字符可能被截断为仅图标）。
@@ -63,6 +66,7 @@ object StatusNotifier {
  SessionState.WAITING to "等输入",
  SessionState.DONE to "已完成",
  SessionState.SEND_FAILED to "发送失败",
+ SessionState.RECONNECTING to "重连中",
  )
 
  @Volatile
@@ -152,20 +156,24 @@ object StatusNotifier {
  )
  }
 
- fun fireDoneAlert(ctx: Context) {
+ /** 完成提醒。title=事件实体（转态任务的标题，来自帧层事件锚）；空时回退最近打开的会话。 */
+ fun fireDoneAlert(ctx: Context, title: String? = null) {
  ensureAlertChannel(ctx)
+ val name = title?.takeIf { it.isNotBlank) } ?: sessionTitle
  ctx.getSystemService(NotificationManager::class.java).notify(
  ALERT_DONE_ID,
- buildAlert(ctx, ctx.getString(R.string.done_alert_title), sessionTitle.ifBlank { ctx.getString(R.string.done_alert_text) }),
+ buildAlert(ctx, ctx.getString(R.string.done_alert_title), name.ifBlank { ctx.getString(R.string.done_alert_text) }),
  )
  }
 
- /** 等输入提醒（2026-09-07 用户「等待输入最好和完成一样有通知」）：与完成同渠道同形态。 */
- fun fireWaitingAlert(ctx: Context) {
+ /** 等输入提醒（2026-09-07 用户「等待输入最好和完成一样有通知」）：与完成同渠道同形态。
+ * title 语义同 fireDoneAlert——2026-09-08 修串台：列表态事件须传实际转态任务。 */
+ fun fireWaitingAlert(ctx: Context, title: String? = null) {
  ensureAlertChannel(ctx)
+ val name = title?.takeIf { it.isNotBlank) } ?: sessionTitle
  ctx.getSystemService(NotificationManager::class.java).notify(
  ALERT_WAITING_ID,
- buildAlert(ctx, ctx.getString(R.string.waiting_alert_title), sessionTitle.ifBlank { ctx.getString(R.string.waiting_alert_text) }),
+ buildAlert(ctx, ctx.getString(R.string.waiting_alert_title), name.ifBlank { ctx.getString(R.string.waiting_alert_text) }),
  )
  }
 
