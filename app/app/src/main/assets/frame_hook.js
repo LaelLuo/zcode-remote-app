@@ -129,19 +129,13 @@
  } catch (e) { /* 桥异常静默，DOM 探测兜底 */ }
  }
 
- // waiting 超时无 WS 信号（纯客户端 30s 定时器），但 enterTerminalFailure 会先
- // socket.close) 再渲染错误页——close 就是超时终局的第一手瞬间（实测比 UI 早约 0.5s）。
- // 判据（2026-09-08 真机取证）：JS close) 无参在 WebView 上 code=1005（非 1000）；
- // waiting 期零 data 帧（data=配对成功才推），故「从未收到 data 帧 + close(1005)」=终局。
- // 网络闪断是 1006 且配对成功后断线 everData=true，都不误判（页面自愈重连）
+ // close(1005) 语义不唯一，不做终态判定（2026-09-08 实测网络抖动误杀后退役）：
+ // 页面重连前同样主动关旧连接（1005），与等待超时自杀无法区分——曾以「零 data 帧
+ // +1005」判 waiting 终局，网络抖动撞上刚配对/重载后的无数据窗口即误清凭据。
+ // 等待超时终态由 h1 标题锚层兜住（渲染后 ~0.5s，零误判）。close 只留诊断
  function reportCloseSignal(code) {
  try {
- if (!everData && code === 1005) {
- bridge.onSignal('{"terminal":"invalid-mobile-connection","via":"ws-close"}');
- } else {
- // life 诊断信号：Kotlin 记日志（close 层为何未判终态的取证面——code/everData）
  bridge.onSignal('{"life":"close","code":' + code + ',"everData":' + everData + '}');
- }
  } catch (e) { /* 桥异常静默 */ }
  }
 
