@@ -8,12 +8,11 @@
     <string name="config_paste_hint">或粘贴远程控制链接</string>
     <string name="config_use_pasted">使用粘贴的链接</string>
     <string name="config_stale_hint">上次的远程控制链接已失效（被桌面端重置或会话已结束），\n请回到桌面端重新生成二维码扫码配对。</string>
+    <string name="config_keep_link_hint">桌面端不在线（可能已关机、断电或断网）。上次的链接仍有效，已保留在下方——\n点「使用粘贴的链接」即可手动重连。</string>
 
     <string name="scan_prompt">对准桌面端远程控制二维码</string>
 
     <string name="error_exhausted">连接多次自动恢复失败。保持此页打开，会每分钟自动重试一次；也可以手动重试，或重新扫码配对。</string>
-    <string name="error_desktop_wait">桌面端不在线（可能已关机、断电或断网）。\n链接仍然有效——保持此页打开，桌面端恢复后会自动重连。</string>
-    <string name="error_relay_wait">中转服务暂不可用。\n链接仍然有效——保持此页打开，服务恢复后会自动重连。</string>
     <string name="error_retry">重试</string>
     <string name="error_rescan">重新扫码配对</string>
 

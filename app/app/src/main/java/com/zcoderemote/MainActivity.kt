@@ -63,8 +63,12 @@ class MainActivity : AppCompatActivity) {
  performRescan(hint)
  }
 
- override fun showExhausted(message: String) {
- showErrorOverlay(message, retryEnabled = true)
+ override fun rescanKeepLink(hint: String) {
+ performRescan(hint, keepLink = true)
+ }
+
+ override fun showExhausted) {
+ showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
  }
 
  override fun hideExhausted) {
@@ -78,8 +82,7 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun hasNetwork): Boolean = isNetworkAvailable)
- }, terminalHint = { getString(R.string.config_stale_hint) },
- exhaustedHint = { getString(R.string.error_exhausted) })
+ }, terminalHint = { getString(R.string.config_stale_hint) })
 
  // 会话状态基准（瞬态覆盖不污染）——会话层，不属于连接状态机
  private var lastNotifiedRunState: SessionState = SessionState.IDLE
@@ -151,21 +154,17 @@ class MainActivity : AppCompatActivity) {
  return
  }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
- // 一个量级）。按码分流（2026-09-09 用户断电实测踩坑）：
+ // 一个量级）。按码分流（2026-09-09 用户断电实测踩坑，同日拍板形态）：
  // 真死（配对失效/被踢/鉴权失败）→ 瞬时回配置清凭据
  // 可恢复（桌面端离线/中继不可用）→ 凭据仍有效（桌面端重启后 setting.json 不变），
- // 清了就强迫重新扫码——进等待态：错误页说明+每分钟自愈重载，桌面端回来即恢复
+ // 回配置但保留链接等用户手动点「使用粘贴的链接」重连——不清不自动重试
  val terminalCode = sig.optString("terminal", "")
  if (terminalCode.isNotEmpty)) {
  if (machine.state != ConnectionMachine.State.CONFIG) {
  when (terminalCode) {
- "desktop-disconnected" -> {
- Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> wait")
- machine.onRecoverableTerminal(getString(R.string.error_desktop_wait))
- }
- "relay-unavailable" -> {
- Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> wait")
- machine.onRecoverableTerminal(getString(R.string.error_relay_wait))
+ "desktop-disconnected", "relay-unavailable" -> {
+ Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink")
+ machine.onRecoverableTerminal(getString(R.string.config_keep_link_hint))
  }
  else -> {
  Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
@@ -764,12 +763,19 @@ setTimeout(function){
  }
 
  /** 清凭据回到配置界面（ConnectionMachine.Actor.rescan 的实现；hint 非空=红字原因）。 */
- private fun performRescan(hint: String?) {
+ private fun performRescan(hint: String?, keepLink: Boolean = false) {
  stopProbeLoops)
+ if (keepLink) {
+ // 可恢复终态（桌面端离线/中继故障）：链接仍有效——保留存储并在输入框预填，
+ // 用户点「使用粘贴的链接」即重连（自动重试方案 2026-09-09 被弃用）
+ etUrl.setText(UrlStore.load(this) ?: "")
+ } else {
  UrlStore.clear(this)
+ // 残留的旧链接是死链，误点「使用粘贴的链接」白等一轮 30s 超时
+ etUrl.setText("")
+ }
  destroyWebView)
  KeepAliveService.stop(this)
- etUrl.setText("") // 残留的旧链接是死链，误点「使用粘贴的链接」白等一轮 30s 超时
  if (hint != null) {
  tvConfigError.text = hint
  tvConfigError.visibility = View.VISIBLE
