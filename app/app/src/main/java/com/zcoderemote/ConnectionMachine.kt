@@ -11,12 +11,18 @@ import android.os.SystemClock
  * 状态：
  * OK 连接健康
  * RECONNECTING 瞬态故障自动重载中（退避 0/3/10s，一轮最多 3 次）
- * EXHAUSTED 密集重载耗尽：错误覆盖层 + 60s 低频自愈
- * CONFIG 无凭据/已回配置。链接判死是瞬时迁移到 CONFIG（清凭据停服务），
- * 没有驻留的「终态」——这是 3a7cdc4 之后的既定行为， 删除死分支后定型。
+ * EXHAUSTED 密集重载耗尽：错误覆盖层 + 60s 低频自愈；可恢复终态（桌面端离线/
+ * 中继故障——凭据仍有效）也进此态等待，不清凭据（2026-09-09）
+ * CONFIG 无凭据/已回配置。真死终态（配对失效/被踢/鉴权失败）瞬时迁移到
+ * CONFIG（清凭据停服务），没有驻留的「终态」——3a7cdc4 定型行为。
  */
-/** terminalHint：延迟求值的终态提示文案（Activity 完成装配前构造 machine，不能立即取资源）。 */
-class ConnectionMachine(private val actor: Actor, private val terminalHint: ) -> String) {
+/** terminalHint：延迟求值的终态提示文案（Activity 完成装配前构造 machine，不能立即取资源）。
+ * exhaustedHint：重载耗尽覆盖层的默认文案（同一原因；可恢复终态另行传入专属文案）。 */
+class ConnectionMachine(
+ private val actor: Actor,
+ private val terminalHint: ) -> String,
+ private val exhaustedHint: ) -> String,
+) {
 
  enum class State { OK, RECONNECTING, EXHAUSTED, CONFIG }
 
@@ -27,8 +33,8 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  /** 清凭据回配置界面；hint=null=无提示（用户主动重扫），非空=红字原因。 */
  fun rescan(hint: String?)
 
- /** 重载耗尽：显示错误覆盖层（文案由实现侧取资源）。 */
- fun showExhausted)
+ /** 重载耗尽/可恢复终态：显示错误覆盖层（文案由调用方给定）。 */
+ fun showExhausted(message: String)
 
  fun hideExhausted)
 
@@ -118,6 +124,17 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  if (state == State.CONFIG) return
  state = State.CONFIG
  actor.rescan(hint)
+ }
+
+ /** 可恢复终态（desktop-disconnected/relay-unavailable）：凭据仍有效——桌面端断电重启/
+ * 中继临时故障都属此类，清凭据会强迫用户重新扫码（2026-09-09 用户断电实测踩坑）。
+ * 进 EXHAUSTED：错误页说明+每分钟自愈重载，桌面端回来后 reload 即恢复。 */
+ fun onRecoverableTerminal(message: String) {
+ if (state == State.CONFIG) return
+ reloadCount = 0
+ state = State.EXHAUSTED
+ actor.notifyReconnecting)
+ actor.showExhausted(message)
  }
 
  /** 用户手点「重新扫码配对」。 */
@@ -212,7 +229,7 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  if (reloadCount >= reloadDelays.size) {
  state = State.EXHAUSTED
  actor.notifyReconnecting)
- actor.showExhausted)
+ actor.showExhausted(exhaustedHint))
  return
  }
  state = State.RECONNECTING

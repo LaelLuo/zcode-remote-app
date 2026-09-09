@@ -12,6 +12,8 @@
     <string name="scan_prompt">对准桌面端远程控制二维码</string>
 
     <string name="error_exhausted">连接多次自动恢复失败。保持此页打开，会每分钟自动重试一次；也可以手动重试，或重新扫码配对。</string>
+    <string name="error_desktop_wait">桌面端不在线（可能已关机、断电或断网）。\n链接仍然有效——保持此页打开，桌面端恢复后会自动重连。</string>
+    <string name="error_relay_wait">中转服务暂不可用。\n链接仍然有效——保持此页打开，服务恢复后会自动重连。</string>
     <string name="error_retry">重试</string>
     <string name="error_rescan">重新扫码配对</string>
 

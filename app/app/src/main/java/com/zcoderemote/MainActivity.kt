@@ -63,8 +63,8 @@ class MainActivity : AppCompatActivity) {
  performRescan(hint)
  }
 
- override fun showExhausted) {
- showErrorOverlay(getString(R.string.error_exhausted), retryEnabled = true)
+ override fun showExhausted(message: String) {
+ showErrorOverlay(message, retryEnabled = true)
  }
 
  override fun hideExhausted) {
@@ -78,7 +78,8 @@ class MainActivity : AppCompatActivity) {
  }
 
  override fun hasNetwork): Boolean = isNetworkAvailable)
- }, terminalHint = { getString(R.string.config_stale_hint) })
+ }, terminalHint = { getString(R.string.config_stale_hint) },
+ exhaustedHint = { getString(R.string.error_exhausted) })
 
  // 会话状态基准（瞬态覆盖不污染）——会话层，不属于连接状态机
  private var lastNotifiedRunState: SessionState = SessionState.IDLE
@@ -150,12 +151,27 @@ class MainActivity : AppCompatActivity) {
  return
  }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
- // 一个量级）→ 状态机瞬时迁移回配置（CONFIG 守卫挡 WebView 销毁竞态期的重复信号）
+ // 一个量级）。按码分流（2026-09-09 用户断电实测踩坑）：
+ // 真死（配对失效/被踢/鉴权失败）→ 瞬时回配置清凭据
+ // 可恢复（桌面端离线/中继不可用）→ 凭据仍有效（桌面端重启后 setting.json 不变），
+ // 清了就强迫重新扫码——进等待态：错误页说明+每分钟自愈重载，桌面端回来即恢复
  val terminalCode = sig.optString("terminal", "")
  if (terminalCode.isNotEmpty)) {
  if (machine.state != ConnectionMachine.State.CONFIG) {
+ when (terminalCode) {
+ "desktop-disconnected" -> {
+ Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> wait")
+ machine.onRecoverableTerminal(getString(R.string.error_desktop_wait))
+ }
+ "relay-unavailable" -> {
+ Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> wait")
+ machine.onRecoverableTerminal(getString(R.string.error_relay_wait))
+ }
+ else -> {
  Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
  machine.onTerminal(getString(R.string.config_stale_hint))
+ }
+ }
  }
  return
  }
