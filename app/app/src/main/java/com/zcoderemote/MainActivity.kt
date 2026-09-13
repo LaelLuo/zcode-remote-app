@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity) {
  if (sig.has("life")) {
  // 只旁听不驱动；close 的 code/pairState 是「close 层为何未判终态」的取证面
  Log.d("FrameSignal", json)
+ FileLog.log("LIFE", json)
  return
  }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
@@ -164,10 +165,12 @@ class MainActivity : AppCompatActivity) {
  when (terminalCode) {
  "desktop-disconnected", "relay-unavailable" -> {
  Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink")
+ FileLog.log("TERMINAL", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink")
  machine.onRecoverableTerminal(getString(R.string.config_keep_link_hint))
  }
  else -> {
  Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
+ FileLog.log("TERMINAL", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")
  machine.onTerminal(getString(R.string.config_stale_hint))
  }
  }
@@ -187,6 +190,7 @@ class MainActivity : AppCompatActivity) {
  // 取证日志：status 翻转才打（5s 心跳不刷屏）——完成/回落的真实帧序列靠它对账
  if (frameStatus != lastLoggedFrameStatus) {
  Log.i("FrameSignal", "status='$frameStatus' running=$frameRunningCount title='${frameTitle}' framesSince=$frameFramesSince")
+ FileLog.log("STATUS", "status='$frameStatus' running=$frameRunningCount title='${frameTitle}' framesSince=$frameFramesSince")
  lastLoggedFrameStatus = frameStatus
  }
  applyFrameState)
@@ -341,6 +345,7 @@ class MainActivity : AppCompatActivity) {
  StatusNotifier.current == SessionState.RUNNING && machine.pageLoadedOnce
  ) {
  frameFramesSince = 0 // 触发重载期间不再重复判假死
+ FileLog.log("STALL", "framesSince=$frameFramesSince → onStallDetected")
  machine.onStallDetected)
  }
  }
@@ -350,6 +355,7 @@ class MainActivity : AppCompatActivity) {
 
  override fun onCreate(savedInstanceState: Bundle?) {
  super.onCreate(savedInstanceState)
+ FileLog.init(applicationContext)
  setContentView(R.layout.activity_main)
 
  configView = findViewById(R.id.configView)
@@ -381,6 +387,7 @@ class MainActivity : AppCompatActivity) {
  registerNetworkCallback)
 
  val stored = UrlStore.load(this)
+ FileLog.log("APP", "cold-start stored=${stored != null} → ${if (stored != null) "enterWeb" else "config"}")
  if (stored != null) enterWeb(stored) else showPanel(Panel.CONFIG)
  handleNavIntent(intent) // 冷启动路径的通知直达（onNewIntent 只覆盖活动态）
  }
@@ -543,10 +550,13 @@ setTimeout(function){
  if (reason != null) {
  tvConfigError.text = reason
  tvConfigError.visibility = View.VISIBLE
+ FileLog.log("LINK", "reject reason=${reason.take(40)}")
  return
  }
  tvConfigError.visibility = View.GONE
  val normalized = url.trim)
+ // 只记 sid 不记完整 URL（hash 是配对钥匙，不落盘）
+ FileLog.log("LINK", "accept sid=${Uri.parse(normalized).getQueryParameter("sid")}")
  UrlStore.save(this, normalized)
  enterWeb(normalized)
  }
@@ -620,6 +630,7 @@ setTimeout(function){
 
  override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
  // 渲染进程崩溃：销毁重建，不清配对
+ FileLog.log("CRASH", "renderProcessGone didCrash=${detail.didCrash)}")
  destroyWebView)
  val stored = UrlStore.load(this@MainActivity)
  if (stored != null && panel == Panel.WEB) {
@@ -694,6 +705,7 @@ setTimeout(function){
  val sendFailed = parts[2] == "1" && !running
  val title = try { java.net.URLDecoder.decode(parts[3], "UTF-8") } catch (_: Exception) { "" }
  android.util.Log.d("ZCodeRemote", "probe fail=$hit run=$running sf=$sendFailed title=$title state=${machine.state}")
+ if (hit != null) FileLog.log("PROBE", "fail=$hit run=$running sf=$sendFailed title=$title state=${machine.state}")
  // 终态由 machine 决策（去抖+回配置）；会话状态兜底只在降级模式有意义
  machine.onProbeHit(hit)
  if (machine.state != ConnectionMachine.State.CONFIG) {
@@ -764,6 +776,7 @@ setTimeout(function){
 
  /** 清凭据回到配置界面（ConnectionMachine.Actor.rescan 的实现；hint 非空=红字原因）。 */
  private fun performRescan(hint: String?, keepLink: Boolean = false) {
+ FileLog.log("RESCAN", "keepLink=$keepLink hint=${hint?.take(30) ?: "null"}")
  stopProbeLoops)
  if (keepLink) {
  // 可恢复终态（桌面端离线/中继故障）：链接仍有效——保留存储并在输入框预填，
