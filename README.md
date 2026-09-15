@@ -20,7 +20,7 @@ ZCode 桌面端自带 Web 远程控制（生成二维码/链接，手机浏览�
 桌面 ZCode ←WebSocket→ 官方中继（wss://zcode.chatglm.site/ws，备用 zcode.z.ai/ws）←WebSocket→ 手机 Web UI
 ```
 
-- **配对凭据**：桌面端首次开启时生成随机密码，取 `sha1(密码)` 前 16 位 hex 作 `passHash`，向中继注册换取 `deviceSid`，两者持久存储（setting.json 的 `webRemoteControlExternalRelayDevice` 存 deviceSid）。
+- **配对凭据**：桌面端首次开启时生成随机密码，`passHash`=**sha256(密码) 的 base64**（勘误 2026-09-15：本行原写「sha1 前 16 位 hex」，实为日志内容指纹的误认，桌面侧源码级定位见 docs/desktop-remote-architecture.md），向中继注册换取 `deviceSid`（setting.json 的 `webRemoteControlExternalRelayDevice` 存 deviceSid；passHash 存凭据服务键 `web-remote-control:external-relay:pass_hash`）。
 - **链接形态**：`<baseUrl>?sid=<deviceSid>&hash=<passHash>&t=<时间戳>&deviceMid=…&deviceName=…&theme=…`。二维码内容即此 URL。
 - **链接不过期**：`t` 参数在 Web 端无任何校验逻辑（全 asar 无 `searchParams.get("t")`），`hash` 就是 passHash 本身，不绑时间戳。**存住 URL 即可长期复用。**
 - **失效场景**：持久凭据 AUTH_FAILED 时桌面端自动降级重新注册（仅试一次），拿到新 deviceSid，旧 URL 作废 → 需重新扫码。低频，壳 app 提供重新扫码入口兜底。
