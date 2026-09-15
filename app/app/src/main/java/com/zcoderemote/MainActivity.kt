@@ -131,6 +131,8 @@ class MainActivity : AppCompatActivity) {
  private var frameWaitingCount = 0 // 列表视图：等输入任务数（liveStatus=waiting）
  private var frameErrorCount = 0 // 列表视图：失败任务数（liveStatus=error）
  private var frameFramesSince = -1L // JS 侧距最近真实中继帧的秒数（假死判据）
+ private var frameWsOffline = false // 任一工作区 disconnected/reconnecting
+ private var frameFragCount = -1 // 分片/解析失败累计（-1=未见任何信号；变化才落日志）
  // 事件锚（JS 侧任务从 running 翻出瞬间记名）：列表聚合事件横幅的实体标题，
  // 防「用户看 A、后台 B 转态、横幅却写 A」的串台（全局 sessionTitle 只反映最近打开的会话）
  private var frameWaitingTitle = ""
@@ -152,6 +154,15 @@ class MainActivity : AppCompatActivity) {
  // 只旁听不驱动；close 的 code/pairState 是「close 层为何未判终态」的取证面
  Log.d("FrameSignal", json)
  FileLog.log("LIFE", json)
+ return
+ }
+ // 错误帧感知：仅日志取证，永不进 onTerminal/onRecoverableTerminal（对账禁令——
+ // app-error 的 reason 与 terminal 码同名不同义：请求失败回执 vs 连接死亡，误路由会
+ // 在「打开未连接远端工作区」等场景误清凭据）
+ val appErr = sig.optString("appError", "")
+ if (appErr.isNotEmpty)) {
+ Log.i("FrameSignal", "appError zt=${sig.optString("zt", "")} reason=$appErr detail=${sig.optString("detail", "").take(80)}")
+ FileLog.log("APPERR", json)
  return
  }
  // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
@@ -185,6 +196,13 @@ class MainActivity : AppCompatActivity) {
  frameWaitingCount = sig.optInt("waitingCount", 0)
  frameErrorCount = sig.optInt("errorCount", 0)
  frameFramesSince = sig.optLong("framesSince", -1L)
+ frameWsOffline = sig.optInt("wsOffline", 0) == 1
+ // 分片计数：变化才落日志（防分片风暴刷屏）；count=-1 → 0 的初见不算变化
+ val frag = sig.optInt("frag", 0)
+ if (frag != frameFragCount && frameFragCount >= 0) {
+ FileLog.log("FRAGMENT", "count=$frag sample=${sig.optString("fragSample", "").take(200)}")
+ }
+ if (frag != frameFragCount) frameFragCount = frag
  frameWaitingTitle = sig.optString("waitingTitle", "")
  frameDoneTitle = sig.optString("doneTitle", "")
  // 取证日志：status 翻转才打（5s 心跳不刷屏）——完成/回落的真实帧序列靠它对账
@@ -262,17 +280,22 @@ class MainActivity : AppCompatActivity) {
  lastListRunning = frameRunningCount > 0
 
  if (view == "list") {
+ // 工作区掉线提示（正文竞合规则）：仅列表语境且连接层非重连中时追加——
+ // 会话视图预览优先不打扰；连接层自己都在重连时工作区提示是噪声
+ val wsSuffix = if (frameWsOffline && machine.state != ConnectionMachine.State.RECONNECTING) {
+ "（工作区重连中）"
+ } else ""
  if (frameRunningCount > 0) {
  StatusNotifier.update(
  this, SessionState.RUNNING,
  titleOverride = getString(R.string.list_title),
- textOverride = "$frameRunningCount 个任务工作中",
+ textOverride = "$frameRunningCount 个任务工作中$wsSuffix",
  )
  } else if (frameWaitingCount > 0) {
  StatusNotifier.update(
  this, SessionState.WAITING,
  titleOverride = getString(R.string.list_title),
- textOverride = "$frameWaitingCount 个任务等输入",
+ textOverride = "$frameWaitingCount 个任务等输入$wsSuffix",
  )
  } else if (frameErrorCount > 0) {
  // 任务失败（不再误显「全部完成」）：失败原因只在会话视图能给（横幅数据源），
@@ -280,7 +303,7 @@ class MainActivity : AppCompatActivity) {
  StatusNotifier.update(
  this, SessionState.SEND_FAILED,
  titleOverride = getString(R.string.list_title),
- textOverride = "$frameErrorCount 个任务失败",
+ textOverride = "$frameErrorCount 个任务失败$wsSuffix",
  )
  } else if (StatusNotifier.current == SessionState.RUNNING ||
  StatusNotifier.current == SessionState.DONE
@@ -291,7 +314,7 @@ class MainActivity : AppCompatActivity) {
  StatusNotifier.update(
  this, SessionState.DONE,
  titleOverride = getString(R.string.list_title),
- textOverride = "任务全部完成",
+ textOverride = "任务全部完成$wsSuffix",
  )
  } else {
  StatusNotifier.update(this, SessionState.IDLE, titleOverride = getString(R.string.list_title))
@@ -806,6 +829,7 @@ setTimeout(function){
  frameWaitingCount = 0
  frameErrorCount = 0
  frameFramesSince = -1L
+ frameWsOffline = false
  frameWaitingTitle = ""
  frameDoneTitle = ""
  lastAlertedWaitingTitle = ""

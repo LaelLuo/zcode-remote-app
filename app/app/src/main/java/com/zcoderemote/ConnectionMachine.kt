@@ -45,6 +45,11 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  fun hasNetwork): Boolean
  }
 
+ // 重载退避档位。 参数核差结论（对照桌面侧全套实测值，decisions.md 2026-09-15 对照表）：
+ // 全部维持现状不照搬——页面自己按桌面同款退避（1s+≤2s 抖动）做 WS 层自愈，壳的整页重载
+ // 是页面自救失败后的兜底（重载本身 2-5s，1s 档会被吃掉）；重放 45s 窗口已被现有逻辑
+ // 正确处理（网络切换才整页重载，纯 WS 断由页面自愈补帧）；前台 15s 比桌面看门狗 30s 严
+ // （降级探测开关，无害），后台 90s 松于看门狗是 WebView 节流所迫（真机实证）。
  private val reloadDelays = longArrayOf(0L, 3_000L, 10_000L)
 
  var state: State = State.CONFIG

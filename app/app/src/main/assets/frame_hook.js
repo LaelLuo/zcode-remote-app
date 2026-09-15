@@ -14,6 +14,10 @@
  var pendingReport = 0; // 即时上报的合并定时器（帧风暴时 300ms 合并一次）
  var pairState = ''; // 最近一次 pair_status_ack 的值（waiting|matched）——诊断观察
  var everData = false; // 收到过 data 帧=配对成功过（close 层终态判定：waiting 期无任何 data 帧）
+ var wsOffline = false; // 任一工作区 connectionState ∈ {disconnected, reconnecting}（）
+ var fragSeen = 0; // wire kind≠complete 的分片/未知信封计数随信号上报）
+ var fragParseFails = 0; // dataBase64 解析失败计数（半截分片死在 JSON.parse，不经 handleInner）
+ var fragSample = ''; // 首个分片样本头（kind/topic/前缀）——只记首个，反哺协议待实证节
  // 事件锚：任务从 running 翻出的瞬间记名（列表聚合事件的横幅实体来源——计数帧没有"是谁"，
  // 横幅若用"最近打开的会话"会串台：用户看 A、后台 B 转态，横幅却写 A）
  var lastWaitingTitle = '';
@@ -29,6 +33,20 @@
  function extractDataEvents(outer) {
  everData = true; // data 帧=工作区数据，只有配对成功后中继才推
  var payload = outer.payload || {};
+ // 错误帧感知（zcode_type 判定，与 bootstrap 快照同层；bundle 实证页面侧同入口）。
+ // 只上报不驱动终态：app-error 是请求失败回执（reason 与 terminal 码同名不同义），
+ // bridge-degraded 页面自己 markDegraded 自愈——三类全部仅作感知取证（APPERR 日志）
+ var zt = payload.zcode_type;
+ if (zt === 'app-error' || zt === 'workspace-bridge-error' || zt === 'bridge-degraded') {
+ reportAppError(zt, payload);
+ return;
+ }
+ // 工作区掉线直读（源①：zcode_type 推送，签名变更即推；源②在 handleInner 的
+ // controller/workspaces 快照——重载后状态恢复兜底）
+ if (zt === 'workspace-list-updated') {
+ applyWorkspaceStates(payload.result && payload.result.workspaces);
+ return;
+ }
  if (payload.dataBase64) {
  try {
  var bin = atob(payload.dataBase64);
@@ -38,7 +56,7 @@
  if (brace < 0) return;
  var text = new TextDecoder('utf-8').decode(bytes.subarray(brace));
  handleInner(JSON.parse(text));
- } catch (e) { /* 未识别帧静默 */ }
+ } catch (e) { fragParseFails++; if (!fragSample) fragSample = 'parseFail'; /* 半截分片/未识别帧：计数不静默丢（） */ }
  } else if (payload.requestId && payload.result && payload.result.tasks) {
  // bootstrap 快照：tasks[].displayStatus
  var list = payload.result.tasks;
@@ -56,10 +74,25 @@
  // ——真实数据在 frame.payload（ 排查实锤：此前误读 j.payload，增量解析从未成功过，
  // 状态全靠 WS 重连时的 bootstrap 快照刷新兜着，分钟级延迟；兼容直挂 payload 的形态防御结构变化）
  function handleInner(j) {
+ // 分片防御：kind 检查必须先于 topic 检查——分片信封可能缺 topic，首行 topic
+ // 检查会把它挡在 kind 识别之前（对账修正）。完整重组待真机抓到分片形态后再立项。
+ // 已知合法 kind 白名单：complete=普通逻辑帧；hello=RPC 握手信封（2026-09-16 真机首证
+ // kind=hello/无 topic/clientMode=web-remote-replayable，握手帧无任务数据，跳过不计数）
+ if (j && j.kind && j.kind !== 'complete') {
+ if (j.kind === 'hello') return;
+ if (!fragSample) {
+ try { fragSample = 'kind=' + j.kind + ' topic=' + (j.topic || '') + ' head=' + JSON.stringify(j).slice(0, 160); } catch (e) {}
+ }
+ fragSeen++;
+ return;
+ }
  if (!j || !j.topic) return;
  var p = (j.frame && j.frame.payload) || j.payload;
  if (!p) return;
- if (j.topic === 'controller/tasks-index') {
+ if (j.topic === 'controller/workspaces') {
+ // 源②：workspaces 快照（bootstrap 同构，重载后状态恢复兜底）
+ applyWorkspaceStates(p.workspaces || (p.snapshot && p.snapshot.workspaces));
+ } else if (j.topic === 'controller/tasks-index') {
  var deltas = p.deltas;
  if (!deltas) return;
  var changed = false;
@@ -111,6 +144,34 @@
  }
  }
  }
+ }
+ }
+
+ // —— 错误帧上报：JSON.stringify 构造（帧内 reason/error 可能含引号，手拼会产生
+ // 非法 JSON 被 Kotlin 静默丢——对账修正的构造约束；app-error/workspace-bridge-error 带
+ // requestId/reason/error，bridge-degraded 只带 bridgeSessionId/reason=rpc-transport-fault）——
+ function reportAppError(zt, payload) {
+ try {
+ bridge.onSignal(JSON.stringify({
+ appError: String(payload.reason || ''),
+ detail: String(payload.error || '').slice(0, 200),
+ zt: zt,
+ requestId: String(payload.requestId || '')
+ }));
+ } catch (e) { /* 桥异常静默 */ }
+ }
+
+ // —— 工作区状态聚合：任一 connectionState ∈ {disconnected, reconnecting} 即离线 ——
+ function applyWorkspaceStates(workspaces) {
+ if (!workspaces || !workspaces.length) return;
+ var off = false;
+ for (var i = 0; i < workspaces.length; i++) {
+ var cs = workspaces[i] && workspaces[i].connectionState;
+ if (cs === 'disconnected' || cs === 'reconnecting') { off = true; break; }
+ }
+ if (off !== wsOffline) {
+ wsOffline = off;
+ scheduleReport);
  }
  }
 
@@ -256,7 +317,7 @@
  else if (tasks[id0].live === 'error') errorCount++;
  }
 
- var signal = { view: view, status: '', title: '', preview: '', runningCount: runningCount, waitingCount: waitingCount, errorCount: errorCount };
+ var signal = { view: view, status: '', title: '', preview: '', runningCount: runningCount, waitingCount: waitingCount, errorCount: errorCount, wsOffline: wsOffline ? 1 : 0, frag: fragSeen + fragParseFails, fragSample: fragSample };
  if (view === 'session') {
  var live = '';
  for (var id1 in tasks) {
