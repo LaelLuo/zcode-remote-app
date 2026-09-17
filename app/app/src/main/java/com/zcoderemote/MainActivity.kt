@@ -39,6 +39,11 @@ import com.journeyapps.barcodescanner.ScanOptions
 
 class MainActivity : AppCompatActivity) {
 
+ private companion object {
+ /** 回前台重建阈值：与桌面重放宽限对齐的启发式（架构文档 §2 replayBufferGraceMs=45s） */
+ private const val RESUME_RELOAD_AFTER_MS = 45_000L
+ }
+
  private enum class Panel { CONFIG, WEB, ERROR }
 
  private lateinit var configView: View
@@ -56,6 +61,7 @@ class MainActivity : AppCompatActivity) {
  // —— 连接层状态机（）：重载/回配置/连接层通知的唯一决策处，信号源只报事实 ——
  private val machine = ConnectionMachine(object : ConnectionMachine.Actor {
  override fun reloadAfter(delayMs: Long) {
+ FileLog.log("RELOAD", "delay=${delayMs}ms")
  handler.postDelayed({ webView?.reload) }, delayMs)
  }
 
@@ -423,15 +429,30 @@ class MainActivity : AppCompatActivity) {
  destroyWebView)
  }
 
+ // 后台起点（哨兵 0=无记录：冷启动首启没有 onPause 前史，必须不触发回前台重建）
+ private var pausedAt = 0L
+
  // 前后台变化喂状态机：新鲜度阈值分档（前台 15s 严格、后台 90s 容忍 WebView 节流压稀心跳）
  override fun onResume) {
  super.onResume)
  machine.onForegroundChanged(true)
+ // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式，非必然性——空闲链路可能
+ // 未降级白重载一次约 20s，接受该代价换降级场景的确定快速恢复）=桥大概率已降级，
+ // 被动等降级通知实测约 2 分钟，主动整页重载走完整重建
+ if (pausedAt > 0L && panel == Panel.WEB) {
+ val backgroundMs = SystemClock.elapsedRealtime) - pausedAt
+ if (backgroundMs > RESUME_RELOAD_AFTER_MS) {
+ FileLog.log("RESUME_RELOAD", "backgroundMs=${backgroundMs}ms > ${RESUME_RELOAD_AFTER_MS}ms → onForegroundStale")
+ machine.onForegroundStale)
+ }
+ }
+ pausedAt = 0L
  }
 
  override fun onPause) {
  super.onPause)
  machine.onForegroundChanged(false)
+ pausedAt = SystemClock.elapsedRealtime)
  }
 
  // —— 通知直达会话（2026-09-09 需求）：通知 extra 带目标任务标题，点击后页面导航过去 ——

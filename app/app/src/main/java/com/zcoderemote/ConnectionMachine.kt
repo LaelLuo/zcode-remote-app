@@ -224,6 +224,17 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  scheduleReload)
  }
 
+ /** 回前台重建判定成立（）：后台时长超重放宽限启发式由调用方判定，此处守卫+统一出口。
+ * 与 onStallDetected 分开命名——触发前提不同（假死=运行中帧流停 vs 本条=后台超时），
+ * 防后来者按注释误读。守卫：CONFIG 无页面、RECONNECTING/EXHAUSTED 已在恢复路上让位
+ * （网络回调可能与 resume 前后脚到达，重复触发连烧计数+连刷页）；OK 态进入=新周期先清
+ * 计数（45-60s 快速前后台切换不该攒满 EXHAUSTED 误显错误覆盖层，对账修正）。 */
+ fun onForegroundStale) {
+ if (state != State.OK) return
+ reloadCount = 0
+ scheduleReload)
+ }
+
  // —— 决策（唯一重载出口）——
 
  private fun scheduleReload) {
