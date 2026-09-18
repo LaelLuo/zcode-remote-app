@@ -1,8 +1,8 @@
 # 远程控制页面中继帧协议笔记（ 调研）
 
-来源：2026-09-07 真机 CDP 帧记录（CDP「文档创建时注入」覆写 WebSocket 旁听，样本
-artifacts/v8-frame-samples.txt + v8-frame-deoded.txt，采集时页面 reload 重新握手 +
-turn 运行中）。仅旁听未发送任何帧。
+来源：2026-09-07 真机 CDP 帧记录（CDP「文档创建时注入」覆写 WebSocket 旁听；采集时页面
+reload 重新握手 + turn 运行中）。样本为本地采集的分析产物，未随仓库分发；可用
+`scripts/frame-recorder.ts` 自行采集（产物默认写 `artifacts/`，已被 gitignore）。仅旁听未发送任何帧。
 
 ## 外层：与中继的 WebSocket
 

@@ -193,7 +193,7 @@
  }
 
  // —— WS 层终态直报（第一手，早于 React 渲染）：中继 error 帧的分发语义照抄官方
- // handleRelayError（artifacts/remote-bundle.js）：KICKED/AUTH_FAILED/WRONG_PARAM 终态，
+ // handleRelayError（官方 web 包的 remote-bundle.js，本地逆向副本）：KICKED/AUTH_FAILED/WRONG_PARAM 终态，
  // DEVICE_OFFLINE/INTERNAL 可恢复不报，未知码=官方兜底 relay-unavailable 也终态。
  // 即时单帧上报不进 300ms 合并——量极小，且这一毫秒就是它存在的意义
  var RELAY_FATAL = { KICKED: 'session-conflict', AUTH_FAILED: 'invalid-mobile-connection', WRONG_PARAM: 'invalid-mobile-connection' };
@@ -224,8 +224,8 @@
  var curTitle = '';
 
  // 终态页锚=渲染标题（_4t 组件 h1=r.title，不挂任何 data 属性——data-error-code 是
- // 会话消息错误组件的锚，曾挂错对象真机实测落空）。四码双语对照 artifacts/remote-bundle.js
- // 映射表；会话页 h1=会话名，撞上这八个标题的概率≈0
+ // 会话消息错误组件的锚，曾挂错对象真机实测落空）。四码双语对照官方 web 包
+ // remote-bundle.js 映射表；会话页 h1=会话名，撞上这八个标题的概率≈0
  var TERMINAL_TITLES = {
  '手机连接已失效': 'invalid-mobile-connection',
  'Mobile Connection Invalid': 'invalid-mobile-connection',
