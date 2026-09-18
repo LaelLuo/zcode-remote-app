@@ -2,6 +2,8 @@
 
 Android 壳 app：把 ZCode 桌面端的「Web 远程控制」页面装进一个全屏 WebView，解决手机浏览器访问的两大痛点——后台断连要手动刷新、浏览器自身 UI 占空间。
 
+> 非官方项目，与 ZCode 及其开发商无关；个人学习与自用目的，请自行遵守当地法律法规与官方服务条款。
+
 ## 背景与动机
 
 ZCode 桌面端自带 Web 远程控制（生成二维码/链接，手机浏览器打开即可控制工作区）。实际使用中：
@@ -14,7 +16,7 @@ ZCode 桌面端自带 Web 远程控制（生成二维码/链接，手机浏览�
 
 ## 远程控制机制（逆向结论）
 
-来源：`D:\Scoop\apps\zcode\current\resources\app.asar` 逆向 + `v2/logs` 运行日志，2026-09-02。
+来源：ZCode 桌面端安装目录 `resources/app.asar` 逆向与运行日志，2026-09-02。
 
 ```
 桌面 ZCode ←WebSocket→ 官方中继（wss://zcode.chatglm.site/ws，备用 zcode.z.ai/ws）←WebSocket→ 手机 Web UI

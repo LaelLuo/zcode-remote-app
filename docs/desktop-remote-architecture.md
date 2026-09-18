@@ -1,7 +1,9 @@
 # 远程控制桌面侧架构（中继↔桌面↔引擎，源码级收口）
 
 > 状态：2026-09-15 完成。与 [frame-protocol.md](frame-protocol.md) 分工：那份管**网页↔中继**（真机帧实证），本文管**中继↔桌面主进程↔宿主进程↔引擎**（纯源码分析，零运行时调用）。
-> 对象：ZCode 桌面 3.12.1，asar（`D:\Scoop\apps\zcode\3.12.1\resources\app.asar`）与引擎（`resources\glm\zcode.cjs`）。抽取物在桥项目 `E:\Projects\Playground\projects\wechat-claw-bridge\workdir\asar-src\`，下文以 `main/index.js`、`main/chunk-HKZQKMLL.js`、`main/chunk-MCKI7TGK.js`、`host/index.js`、`host/chunk-WVGOZGGV.js` 指代（asar 内路径 `out/...`）。偏移为抽取件内字节偏移，可直接 `dd skip=` 复现。压缩名→语义名标注来自产物自带的 `a(X,"名字")` 标注器，可信。
+> 对象：ZCode 桌面 3.12.1，asar（ZCode 安装目录 `resources/app.asar`）与引擎（`resources/glm/zcode.cjs`）。分析在本地抽取件上进行（asar 内路径 `out/...`，下文以 `main/index.js`、`main/chunk-HKZQKMLL.js`、`main/chunk-MCKI7TGK.js`、`host/index.js`、`host/chunk-WVGOZGGV.js` 指代）。偏移为抽取件内字节偏移（仅作分析定位记录）。压缩名→语义名标注来自产物自带的 `a(X,"名字")` 标注器，可信。
+>
+> 本文档为个人对已安装软件的互操作性观察笔记，仅供学习研究，与 ZCode 官方无关。
 
 ## 0. 全链路一图
 

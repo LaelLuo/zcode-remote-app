@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 真机验证一键链：CDP 打开会话视图 → 等探测周期 → dumpsys 机制面 → 亮屏截图。
 # 前提：adb 设备在线（mdns 直连形态）。
-# 用法：bash scripts/v7-verify.sh
+# 用法：D="$(adb devices | awk 'NR>1 && /adb-/ {print $1; exit}')" bash scripts/v7-verify.sh
 set -u
-D="adb-DEVICE-REDACTED (2)._adb-tls-connect._tcp"
+D="${D:?需通过环境变量 D 提供 adb 设备 serial（见 adb devices）}"
 
 PID=$(adb -s "$D" shell pidof com.zcoderemote | tr -d '\r\n ')
 if [ -z "$PID" ]; then echo "!! app 未在运行"; exit 1; fi
