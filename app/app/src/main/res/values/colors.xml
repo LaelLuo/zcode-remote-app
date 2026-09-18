@@ -6,5 +6,6 @@
     <color name="text_secondary">#9AA4AD</color>
     <color name="error">#FF6B6B</color>
     <color name="overlay_scrim">#CC000000</color>
-    <color name="ic_launcher_bg">#0B57D0</color>
+    <color name="ic_launcher_bg">#0B0D0E</color>
+    <color name="accent">#0B57D0</color>
 </resources>
