@@ -83,7 +83,7 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  * 「JS 活着但服务器帧停了」，前者归降级模式，后者才是假死重载的对象）。 */
  fun jsAlive): Boolean = signalAge) < 90_000L
 
- /** DOM 文本探测只在降级模式跑：注入脚本失联时由它接管（）。 */
+ /** DOM 文本探测只在降级模式跑：注入脚本失联时由它接管。 */
  fun shouldProbeDom): Boolean = state != State.CONFIG && !frameSignalFresh)
 
  fun onForegroundChanged(fg: Boolean) {

@@ -75,7 +75,7 @@
   // 状态全靠 WS 重连时的 bootstrap 快照刷新兜着，分钟级延迟；兼容直挂 payload 的形态防御结构变化）
   function handleInner(j) {
     // 分片防御：kind 检查必须先于 topic 检查——分片信封可能缺 topic，首行 topic
-    // 检查会把它挡在 kind 识别之前（对账修正）。完整重组待捕捉到真实分片样本后再实现。
+    // 检查会把它挡在 kind 识别之前。完整重组待捕捉到真实分片样本后再实现。
     // 已知合法 kind 白名单：complete=普通逻辑帧；hello=RPC 握手信封（已在真实流量中观测到：
     // kind=hello/无 topic/clientMode=web-remote-replayable，握手帧无任务数据，跳过不计数）
     if (j && j.kind && j.kind !== 'complete') {
@@ -148,7 +148,7 @@
   }
 
   // —— 错误帧上报：JSON.stringify 构造（帧内 reason/error 可能含引号，手拼会产生
-  //    非法 JSON 被 Kotlin 静默丢——对账修正的构造约束；app-error/workspace-bridge-error 带
+  //    非法 JSON 被 Kotlin 静默丢，故必须结构化构造；app-error/workspace-bridge-error 带
   //    requestId/reason/error，bridge-degraded 只带 bridgeSessionId/reason=rpc-transport-fault）——
   function reportAppError(zt, payload) {
     try {

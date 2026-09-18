@@ -158,7 +158,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 - **桌面形态下所有连接（GUI 渲染层与远程网页桥）角色都是 terminal-client**，差异只在 clientMode（`desktop-continuous` vs `web-remote-replayable`）。远程网页客户端要自己走完整 v4 握手（hello→initialize），hello 响应由包装层 `bo.helloConversationV4(){ …; return Kn(r) }` 返回**本连接的** clientMode 与 `deliveryProfile=Hn(clientMode)`（`Hn`: desktop-continuous→"continuous"，其余→"replayable"）；网页端 `av` 握手代码据此回 clientKind="web"。
 - remote scope 的服务面经 `Yn.resolveScopedServices(scope)` 取远程逻辑会话的**隔离服务集**（host/index.js `rd`=Ije({resolveScope…})），local scope 共享窗口本地服务集 `xr`。
 
-### 4.3 trusted-host-relay 的真实来源（收口 explore-connection.md 遗留项）
+### 4.3 trusted-host-relay 的真实来源
 
 该角色定义于 `host/chunk-WVGOZGGV.js`（偏移 60742-69534 多处门槛），但**桌面 asar 内确实没有任何构造点**——它的用途在门槛代码里自明：
 
@@ -219,7 +219,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 2. **工作区连接状态是现成状态源**：`workspace-list-updated` 推送（签名变更即推）的 `workspaces[]` 每项含 `connectionState: connected|disconnected|reconnecting` 与 `lastConnectionError` 字符串（HKZQKMLL `QI` schema）——「桌面 SSH 工作区掉线」这类状态 app 可从帧直读，无需探测。
 3. **常量对齐**：app 的重连退避、心跳保活设计可对齐桌面侧参数（心跳 10s±20%、看门狗 30s、配对等待自愈 15s、手机离线宽限 3s、重放宽限 45s/8MB、出站缓冲 50 条/5s）——README「后台冻结心跳断」的恢复窗口设计有据可依。
 4. **诊断通道**：手机端 `mobile-diagnostic` 事件会被桌面原样记入 host-log——壳 app 排障时让 WebView 上报诊断事件，事后可在桌面日志中核对。
-5. **URL 复用结论加固**：`t` 参数只写不读（`JH` 只 set）；AUTH_FAILED 自动恢复只换 sid 不换 hash；`resetPairing` 才全换——与 README 失效场景一致，另注意 passHash 实为 sha256-base64（§1.5 勘误，不影响 app 行为）。
+5. **URL 复用结论加固**：`t` 参数只写不读（`JH` 只 set）；AUTH_FAILED 自动恢复只换 sid 不换 hash；`resetPairing` 才全换——与 README 失效场景一致，另注意 passHash 实为 sha256-base64（见 §1.5，不影响 app 行为）。
 
 **利用不了/不需要：**
 

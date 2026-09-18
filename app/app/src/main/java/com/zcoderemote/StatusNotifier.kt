@@ -27,8 +27,8 @@ enum class SessionState(val ticker: String) {
  *
  * 会话状态经 Android 16 Live Updates 标准通道上岛（超级岛/状态栏胶囊）——
  * 裸提升请求 + 胶囊短文本，HyperOS 3.0.300+ 系统级适配，无需小米平台流程。
- * 上岛集合=会话状态 {RUNNING, DONE, SEND_FAILED}；连接层状态（IDLE/RECONNECTING）
- * 不上岛。不使用 ProgressStyle：会话无进度数值，进度形态是装饰。
+ * 上岛集合=会话状态 {RUNNING, WAITING, DONE, SEND_FAILED} + RECONNECTING（见
+ * promotedStates 注释）；仅 IDLE 不上岛。不使用 ProgressStyle：会话无进度数值，进度形态是装饰。
  */
 object StatusNotifier {
 
