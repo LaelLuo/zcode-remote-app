@@ -39,7 +39,7 @@ object StatusNotifier {
  // 标准通道只禁 IMPORTANCE_MIN，LOW 合法
  private const val CHANNEL_ID = "keepalive3"
 
- // 完成提醒（2026-09-07 反馈「会话完成直接收岛、没有任何提示」）：常驻渠道是 LOW 无声，
+ // 完成提醒（2026-09-07 反馈：完成时岛直接收起且无任何提示）：常驻渠道是 LOW 无声，
  // 完成这件事实体必须可感知——进入 DONE 时经独立 HIGH 渠道弹横幅+响声提醒，离开 DONE 撤掉。
  // 渠道重要性创建后不可改：首版建成 DEFAULT(3) 实测只进状态栏不弹横幅无声（真机 2026-09-07），
  // 升 HIGH 必须换 ID——done_alerts2；旧 done_alerts 渠道废弃不再使用，留在系统里无害。
@@ -60,7 +60,7 @@ object StatusNotifier {
 
  /** 状态栏胶囊短文本（显示空间 96dp 内，超过 6 个字符可能被截断为仅图标）。
  * 「工作中」跟 zcode web 端计时按钮同文案（2026-09-07 设计决策统一）；
- * 「等输入」为 waiting 单列展示（2026-09-07 设计决策「要」）。 */
+ * 「等输入」为 waiting 单列展示（2026-09-07 设计决策）。 */
  private val chipText = mapOf(
  SessionState.RUNNING to "工作中",
  SessionState.WAITING to "等输入",

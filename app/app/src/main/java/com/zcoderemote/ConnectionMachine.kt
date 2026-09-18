@@ -29,8 +29,8 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  fun rescan(hint: String?)
 
  /** 可恢复终态回配置界面但保留链接：凭据仍有效（桌面端断电重启/中继临时故障），
- * 不清不预空——用户手动点「使用粘贴的链接」即重连（2026-09-09 设计决策，
- * 自动重试方案被否「（用户要求保留链接手动重连）」）。 */
+ * 不清不预空——用户手动点「使用粘贴的链接」即重连（2026-09-09 设计决策：
+ * 自动重试方案被否，要求保留链接走手动重连）。 */
  fun rescanKeepLink(hint: String)
 
  /** 重载耗尽：显示错误覆盖层（文案由实现侧取资源）。 */
@@ -45,7 +45,8 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  fun hasNetwork): Boolean
  }
 
- // 重载退避档位。 参数核差结论（对照桌面侧全套实测值，decisions.md 2026-09-15 对照表）：
+ // 重载退避档位。参数核差结论（对照桌面侧全套实测值——桌面 WS 退避 1s 起步、看门狗 30s、
+ // 重放宽限 45s/8MB；完整对照结论见 docs/desktop-remote-architecture.md §1.3/§2）：
  // 全部维持现状不照搬——页面自己按桌面同款退避（1s+≤2s 抖动）做 WS 层自愈，壳的整页重载
  // 是页面自救失败后的兜底（重载本身 2-5s，1s 档会被吃掉）；重放 45s 窗口已被现有逻辑
  // 正确处理（网络切换才整页重载，纯 WS 断由页面自愈补帧）；前台 15s 比桌面看门狗 30s 严

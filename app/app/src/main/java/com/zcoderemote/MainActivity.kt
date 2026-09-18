@@ -330,7 +330,7 @@ class MainActivity : AppCompatActivity) {
  } else {
  val state = when (frameStatus) {
  "running" -> SessionState.RUNNING
- "waiting" -> SessionState.WAITING // 等输入单列展示（2026-09-07 设计决策「要」）
+ "waiting" -> SessionState.WAITING // 等输入单列展示（2026-09-07 设计决策）
  "completed" -> SessionState.DONE
  "error" -> SessionState.SEND_FAILED
  else -> null // idle/unknown：帧拿不准，交给轮询兜底
