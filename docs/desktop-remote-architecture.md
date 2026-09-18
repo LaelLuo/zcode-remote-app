@@ -74,12 +74,12 @@ sequenceDiagram
 - `INTERNAL` → 已配对/等终端时转 `waiting_terminal` 继续心跳等桌面侧恢复，否则可恢复错误；
 - `WRONG_PARAM` → 上报错误；其余 → 终态 error。
 
-### 1.5 passHash/deviceSid 完整生命周期（含对 README 的一处勘误）
+### 1.5 passHash/deviceSid 完整生命周期
 
 - 生成（`iy`=createNodeWebRemoteControlRelayAuthProvider，index.js）：
   - `createPassword: randomBytes(24).toString("base64url")`；
   - **`createPassHash: sha256(password).digest("base64")`**。
-  - **勘误**：README「取 sha1(密码) 前 16 位 hex 作 passHash」不成立——sha1 前 16 hex（`HD`=createMessageHashFromRaw/`zD`=createMessageHashFromText）只是 `logRelayTrace` 里中继消息的**内容指纹**（日志排障用），不是配对凭据。二维码 URL 的 `hash` 参数 = 完整 sha256-base64 passHash（`JH`=buildWebRemoteControlExternalQrUrl，HKZQKMLL 偏移 471220 附近：`searchParams.set("sid",deviceSid).set("hash",passHash).set("t",String(timestamp)).set("mid",…).set("name",…).set("app_version",…)`，`timestamp:Date.now()` 仅写入，全库无任何校验读取——URL 长期复用结论不变）。
+  - **注意**：sha1 前 16 hex（`HD`=createMessageHashFromRaw/`zD`=createMessageHashFromText）只是 `logRelayTrace` 里中继消息的**内容指纹**（日志排障用），不是配对凭据。二维码 URL 的 `hash` 参数 = 完整 sha256-base64 passHash（`JH`=buildWebRemoteControlExternalQrUrl，HKZQKMLL 偏移 471220 附近：`searchParams.set("sid",deviceSid).set("hash",passHash).set("t",String(timestamp)).set("mid",…).set("name",…).set("app_version",…)`，`timestamp:Date.now()` 仅写入，全库无任何校验读取——URL 长期复用结论不变）。
 - 存储（`sy`=createWebRemoteControlRelayAuthStorageProvider，index.js 偏移 439500 附近）：
   - deviceSid → setting.json `webRemoteControlExternalRelayDevice.deviceSid`；
   - passHash → 凭据服务键 `"web-remote-control:external-relay:pass_hash"`（源码常量 `hd`）；
@@ -155,7 +155,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 
 **关键实证：全库唯一的连接工厂调用点就是这里**（`grep -aob "Mpe(" out__host__index.js` 仅 3065905 一处；各 chunk 均无其他调用）。`Qn` 包装层里 `n = r.role ?? "terminal-client"`——所以：
 
-- **桌面形态下所有连接（GUI 渲染层与远程网页桥）角色都是 terminal-client**，差异只在 clientMode（`desktop-continuous` vs `web-remote-replayable`）。远程网页客户端要自己走完整 v4 握手（hello→initialize），hello 响应由包装层 `bo.helloConversationV4(){ …; return Kn(r) }` 返回**本连接的** clientMode 与 `deliveryProfile=Hn(clientMode)`（`Hn`: desktop-continuous→"continuous"，其余→"replayable"）；网页端 `av` 握手代码据此回 clientKind="web"（zcode-sdk/docs/explore-connection.md §1.3 已录）。
+- **桌面形态下所有连接（GUI 渲染层与远程网页桥）角色都是 terminal-client**，差异只在 clientMode（`desktop-continuous` vs `web-remote-replayable`）。远程网页客户端要自己走完整 v4 握手（hello→initialize），hello 响应由包装层 `bo.helloConversationV4(){ …; return Kn(r) }` 返回**本连接的** clientMode 与 `deliveryProfile=Hn(clientMode)`（`Hn`: desktop-continuous→"continuous"，其余→"replayable"）；网页端 `av` 握手代码据此回 clientKind="web"。
 - remote scope 的服务面经 `Yn.resolveScopedServices(scope)` 取远程逻辑会话的**隔离服务集**（host/index.js `rd`=Ije({resolveScope…})），local scope 共享窗口本地服务集 `xr`。
 
 ### 4.3 trusted-host-relay 的真实来源（收口 explore-connection.md 遗留项）
@@ -172,7 +172,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 
 ### 5.1 通路：与 GUI 完全同一条 v4 RPC 面
 
-手机端「发送消息/新建会话/停止」就是网页包里的同一套 v4 客户端（与 GUI 渲染层同源）：`sendConversationCommandV4({workspacePath, envelope})` → rpc-frame 分帧 → 中继 → 主进程桥 → 宿主端口 → `Mpe` 包装层（terminal-client，完整握手后放行，校验 envelope.clientId）→ 内层服务（host/index.js 偏移 1120700 附近）→ `rs(g)` 加工 → `O.request("v4/command", envelope)` → 引擎 `Lan[t.type]` 校验执行（zcode-sdk/docs/explore-connection.md §3 已证）。远程会话ID（remoteSessionId）随顶层入参走，sendText 会附 `browserAmbientContext`（内层 `Vq(browserControlExecutor,…,clientMode)`）。
+手机端「发送消息/新建会话/停止」就是网页包里的同一套 v4 客户端（与 GUI 渲染层同源）：`sendConversationCommandV4({workspacePath, envelope})` → rpc-frame 分帧 → 中继 → 主进程桥 → 宿主端口 → `Mpe` 包装层（terminal-client，完整握手后放行，校验 envelope.clientId）→ 内层服务（host/index.js 偏移 1120700 附近）→ `rs(g)` 加工 → `O.request("v4/command", envelope)` → 引擎 `Lan[t.type]` 校验执行。远程会话ID（remoteSessionId）随顶层入参走，sendText 会附 `browserAmbientContext`（内层 `Vq(browserControlExecutor,…,clientMode)`）。
 
 引擎侧对 clientMode 的感知（zcode.cjs，3 处 `web-remote-replayable`）：
 
@@ -200,7 +200,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 2. **宿主传输层**：`FMt` 里 `c.onFlowState` 收到 → `f.setTransportFlowState(state)` 进包装层；
 3. **包装层按路由转发给引擎**：`Qn` 闭包 `uo`=applyTransportFlowState 遍历本连接全部订阅路由，逐条调内层 `setConnectionFlowStateV4(A({…target, state}, connection))`——内层实现（host/index.js 偏移 1120924）只认 `ri(g)`=`__zcodeTrustedV4Connection` 标记（无标记抛 `fault.connection.flowControlUntrusted`），随后向引擎发 `v4/connectionFlow{connectionId, state}`。
 
-所以流控对远程链路的意义：**把"手机收不动了"这个背压逐级传到引擎的会话流，让 turn 输出暂停而不是无限缓冲**——缓冲上限就是 §2 的 8MB 重放缓冲，超了即桥降级（`bridge-degraded`）。而「只有 trusted-host-relay 能调」是包装层对**外部客户端**的门槛（桌面里无人能触达）；宿主内部转发走的是同函数的标记通道，不受该角色限制。explore-connection.md §1.1 表中「独占 setConnectionFlowStateV4」应理解为这个双层语义。
+所以流控对远程链路的意义：**把"手机收不动了"这个背压逐级传到引擎的会话流，让 turn 输出暂停而不是无限缓冲**——缓冲上限就是 §2 的 8MB 重放缓冲，超了即桥降级（`bridge-degraded`）。而「只有 trusted-host-relay 能调」是包装层对**外部客户端**的门槛（桌面里无人能触达）；宿主内部转发走的是同函数的标记通道，不受该角色限制。「trusted-host-relay 独占 setConnectionFlowStateV4」的说法应理解为这个双层语义。
 
 ## 7. BotRemoteWorkspaceRuntimePort（问题 5）
 
@@ -218,7 +218,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 1. **桌面侧失败原因进了帧数据**：`app-error`/`workspace-bridge-error`/`bridge-degraded` 帧的 `reason` 是 11 值枚举（§3）、`error` 是桌面侧原始错误串（含中文诊断，如「目标远程工作区尚未连接」）。壳 app 的终态感知可直接消费 reason 枚举（session-conflict/workspace-closed/desktop-disconnected 等），比 DOM 文本锚更快更稳；但**会话内 provider 错误详情仍不在帧里**（frame-protocol.md 结论不变，错误对象只在渲染层 DOM）。
 2. **工作区连接状态是现成状态源**：`workspace-list-updated` 推送（签名变更即推）的 `workspaces[]` 每项含 `connectionState: connected|disconnected|reconnecting` 与 `lastConnectionError` 字符串（HKZQKMLL `QI` schema）——「桌面 SSH 工作区掉线」这类状态 app 可从帧直读，无需探测。
 3. **常量对齐**：app 的重连退避、心跳保活设计可对齐桌面侧参数（心跳 10s±20%、看门狗 30s、配对等待自愈 15s、手机离线宽限 3s、重放宽限 45s/8MB、出站缓冲 50 条/5s）——README「后台冻结心跳断」的恢复窗口设计有据可依。
-4. **诊断通道**：手机端 `mobile-diagnostic` 事件会被桌面原样记入 host-log——壳 app 排障时让 WebView 上报诊断事件，事后桌面日志可对账。
+4. **诊断通道**：手机端 `mobile-diagnostic` 事件会被桌面原样记入 host-log——壳 app 排障时让 WebView 上报诊断事件，事后可在桌面日志中核对。
 5. **URL 复用结论加固**：`t` 参数只写不读（`JH` 只 set）；AUTH_FAILED 自动恢复只换 sid 不换 hash；`resetPairing` 才全换——与 README 失效场景一致，另注意 passHash 实为 sha256-base64（§1.5 勘误，不影响 app 行为）。
 
 **利用不了/不需要：**
@@ -227,7 +227,7 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 - rpc-frame 层是桌面↔手机透明传输，app（WebView 壳）在页面之下，无需感知；
 - platform-request 白名单是页面→桌面的通道，app 不经页面发不了。
 
-**待实证（需真机/真页面验证，本轮纯源码未做）：**
+**待实证（需真机/真页面验证，本文为纯源码分析）：**
 
 - `workspace-list-updated` 的 `lastConnectionError` 实际取值样例（远程工作区掉线场景）；
 - 第二页面顶掉第一页面后，桌面设备连接重连时的中继行为（长期 waiting 还是 KICKED）；
@@ -254,4 +254,4 @@ function FMt(e, t, r, o = "desktop-continuous", n = {kind: "local"}, i) {
 | 包装层流控转发 | out/host/chunk-WVGOZGGV.js | `grep -aob "applyTransportFlowState\|forwardFlowRoute"` |
 | BotRemoteWorkspaceRuntimePort | out/main/chunk-HKZQKMLL.js + out/main/index.js | 偏移 8800-9800（枚举）；`grep -aob "createBotRemoteWorkspaceRuntimePort"` |
 | 引擎 clientMode/晋升命令 | resources/glm/zcode.cjs | `grep -aob "web-remote-replayable"` → 338832/360699/487882 |
-| 运行日志佐证 | ~/.zcode/v2/logs/2026-09-0*.log | `grep "web-remote-control"`（state paired/connecting/dropped buffered payloads/KICKED 等行） |
+| 运行日志佐证 | 桌面端日志目录 | `grep "web-remote-control"`（state paired/connecting/dropped/KICKED 等行） |

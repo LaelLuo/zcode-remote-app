@@ -3,10 +3,10 @@ package com.zcoderemote
 import android.os.SystemClock
 
 /**
- * 连接层状态机（ 架构收敛）：唯一有权决定整页重载、清凭据回配置、连接层通知。
+ * 连接层状态机（唯一决策点）：唯一有权决定整页重载、清凭据回配置、连接层通知。
  * 五个信号源（注入脚本上报 / 降级 DOM 探测 / 网络回调 / WebView 加载回调 / 慢重试）
  * 只调 onXxx 报事实，决策与状态转移集中在此。会话层（任务状态→通知文案）不归此管，
- * 见 MainActivity.applyFrameState（ 已验收资产）。
+ * 见 MainActivity.applyFrameState。
  *
  * 状态：
  * OK 连接健康
@@ -29,8 +29,8 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  fun rescan(hint: String?)
 
  /** 可恢复终态回配置界面但保留链接：凭据仍有效（桌面端断电重启/中继临时故障），
- * 不清不预空——用户手动点「使用粘贴的链接」即重连（2026-09-09 设计决策：
- * 自动重试方案被否，要求保留链接走手动重连）。 */
+ * 不清不预空——用户手动点「使用粘贴的链接」即重连（设计取舍：不做自动重试，
+ * 保留链接由用户手动重连）。 */
  fun rescanKeepLink(hint: String)
 
  /** 重载耗尽：显示错误覆盖层（文案由实现侧取资源）。 */
@@ -45,7 +45,7 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  fun hasNetwork): Boolean
  }
 
- // 重载退避档位。参数核差结论（对照桌面侧全套实测值——桌面 WS 退避 1s 起步、看门狗 30s、
+ // 重载退避档位。与桌面侧参数对照的结论（桌面 WS 退避 1s 起步、看门狗 30s、
  // 重放宽限 45s/8MB；完整对照结论见 docs/desktop-remote-architecture.md §1.3/§2）：
  // 全部维持现状不照搬——页面自己按桌面同款退避（1s+≤2s 抖动）做 WS 层自愈，壳的整页重载
  // 是页面自救失败后的兜底（重载本身 2-5s，1s 档会被吃掉）；重放 45s 窗口已被现有逻辑
@@ -133,8 +133,8 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  }
 
  /** 可恢复终态（desktop-disconnected/relay-unavailable）：凭据仍有效——桌面端断电重启/
- * 中继临时故障都属此类，清凭据会强迫用户重新扫码（2026-09-09 用户断电实测踩坑）。
- * 回配置但保留链接等用户手动重连（自动重试方案同日被弃用，见 Actor.rescanKeepLink）。 */
+ * 中继临时故障都属此类，清凭据会强迫用户重新扫码。
+ * 回配置但保留链接等用户手动重连（见 Actor.rescanKeepLink）。 */
  fun onRecoverableTerminal(hint: String) {
  if (state == State.CONFIG) return
  state = State.CONFIG
@@ -193,7 +193,7 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  }
 
  /** 网络恢复（含网络切换）。ERROR 态立即重试；已加载过页面的无条件重载
- * （同段说明）。 */
+ * （网络切换必然弄死页面中继连接，且页面收不到断开信号——假死场景）。 */
  fun onNetworkRecovered) {
  if (state == State.CONFIG) return
  if (state == State.EXHAUSTED) {
@@ -225,11 +225,11 @@ class ConnectionMachine(private val actor: Actor, private val terminalHint: ) ->
  scheduleReload)
  }
 
- /** 回前台重建判定成立（）：后台时长超重放宽限启发式由调用方判定，此处守卫+统一出口。
+ /** 回前台重建判定成立：后台时长超重放宽限启发式由调用方判定，此处守卫+统一出口。
  * 与 onStallDetected 分开命名——触发前提不同（假死=运行中帧流停 vs 本条=后台超时），
  * 防后来者按注释误读。守卫：CONFIG 无页面、RECONNECTING/EXHAUSTED 已在恢复路上让位
  * （网络回调可能与 resume 前后脚到达，重复触发连烧计数+连刷页）；OK 态进入=新周期先清
- * 计数（45-60s 快速前后台切换不该攒满 EXHAUSTED 误显错误覆盖层，对账修正）。 */
+ * 计数（45-60s 快速前后台切换不该攒满 EXHAUSTED 误显错误覆盖层）。 */
  fun onForegroundStale) {
  if (state != State.OK) return
  reloadCount = 0
