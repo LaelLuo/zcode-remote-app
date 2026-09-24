@@ -172,9 +172,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
         // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
-        // 一个量级）。按码分流：
-        //   真死（配对失效/被踢/鉴权失败）→ 瞬时回配置清凭据
-        //   可恢复（桌面端离线/中继不可用）→ 凭据仍有效（桌面端重启后 setting.json 不变），
+        // 一个量级）。按码分流（2026-09-24 名单调整：被踢入保链）：
+        //   真死（配对失效/鉴权失败 invalid-mobile-connection）→ 瞬时回配置清凭据
+        //   可恢复（桌面端离线/中继不可用/被踢 session-conflict）→ 凭据均仍有效：
+        //     离线/中继故障——桌面端重启后 setting.json 不变；
+        //     被踢——同一凭据被第二设备使用（如手机/平板切换），sid/hash 未变，
+        //     点「使用粘贴的链接」重连即顶回对端，免重新扫码（权衡：链接盗用场景
+        //     会形成互踢循环，但泄露本身已是更大问题且互踢可暴露异常）
         //   回配置但保留链接等用户手动点「使用粘贴的链接」重连——不清不自动重试
         val terminalCode = sig.optString("terminal", "")
         if (terminalCode.isNotEmpty()) {
@@ -184,6 +188,11 @@ class MainActivity : AppCompatActivity() {
                         Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink")
                         FileLog.log("TERMINAL", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink")
                         machine.onRecoverableTerminal(getString(R.string.config_keep_link_hint))
+                    }
+                    "session-conflict" -> {
+                        Log.i("FrameSignal", "terminal='session-conflict' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink(kicked)")
+                        FileLog.log("TERMINAL", "terminal='session-conflict' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescanKeepLink(kicked)")
+                        machine.onRecoverableTerminal(getString(R.string.config_kicked_hint))
                     }
                     else -> {
                         Log.i("FrameSignal", "terminal='$terminalCode' via='${sig.optString("via", sig.optString("relayCode", ""))}' -> rescan")

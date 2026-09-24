@@ -9,6 +9,7 @@
     <string name="config_use_pasted">使用粘贴的链接</string>
     <string name="config_stale_hint">上次的远程控制链接已失效（被桌面端重置或会话已结束），\n请回到桌面端重新生成二维码扫码配对。</string>
     <string name="config_keep_link_hint">桌面端不在线（可能已关机、断电或断网）。上次的链接仍有效，已保留在下方——\n点「使用粘贴的链接」即可手动重连。</string>
+    <string name="config_kicked_hint">连接被其他设备接管（同一链接同时只能一台设备在线，如手机/平板切换）。链接仍有效，已保留在下方——\n点「使用粘贴的链接」重新连接（会把对端顶下线）。</string>
 
     <string name="scan_prompt">对准桌面端远程控制二维码</string>
 
