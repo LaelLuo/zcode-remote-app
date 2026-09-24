@@ -36,10 +36,10 @@ kotlin {
 }
 
 dependencies {
-    // core 1.17+ 才有 NotificationCompat.setProgress 样式与 setRequestPromotedOngoing（灵动岛提升请求 API 所需）
+    // core 1.17+ 才有 NotificationCompat.setProgress 样式与 setRequestPromotedOngoing 灵动岛标准通道）
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
-    // 文档创建时注入 JS（帧拦截：赶在页面建 WebSocket 前覆写）
+    // 文档创建时注入 JS 帧拦截：赶在页面建 WebSocket 前覆写）
     implementation("androidx.webkit:webkit:1.9.0")
     // 扫码：纯 zxing 实现，不依赖 Google Play 服务
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

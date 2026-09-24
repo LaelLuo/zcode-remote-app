@@ -40,7 +40,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 class MainActivity : AppCompatActivity() {
 
     private companion object {
-        /** 回前台重建阈值：与桌面端重放宽限对齐（见 docs/desktop-remote-architecture.md §2 replayBufferGraceMs=45s） */
+        /**  回前台重建阈值：与桌面重放宽限对齐的启发式（架构文档 §2 replayBufferGraceMs=45s） */
         private const val RESUME_RELOAD_AFTER_MS = 45_000L
     }
 
@@ -58,7 +58,7 @@ class MainActivity : AppCompatActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // —— 连接层状态机：重载/回配置/连接层通知的唯一决策处，信号源只报事实 ——
+    // —— 连接层状态机）：重载/回配置/连接层通知的唯一决策处，信号源只报事实 ——
     private val machine = ConnectionMachine(object : ConnectionMachine.Actor {
         override fun reloadAfter(delayMs: Long) {
             FileLog.log("RELOAD", "delay=${delayMs}ms")
@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onLost(network: Network) {
-            // 断网瞬间岛切「重连中」：此前无处理，岛停在断网前
+            // 断网瞬间岛切「重连中」（2026-09-08 改为上岛）：此前无处理，岛停在断网前
             // 的旧会话态上，断了也看不出来。只做通知展示，重载决策仍由恢复侧驱动
             handler.post {
                 if (panel == Panel.WEB) {
@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // —— 帧拦截：注入脚本旁听中继帧，提炼任务状态经桥上报（只听不发） ——
+    // ——  帧拦截：注入脚本旁听中继帧，提炼任务状态经桥上报（只听不发） ——
     /** 帧桥最近一次上报时刻由 ConnectionMachine 记账（onFrameSignal）。 */
     private var frameStatus = ""            // 会话视图：当前会话 liveStatus（running/completed/error/…）
     private var frameTitle = ""             // 会话视图：当前会话标题
@@ -137,8 +137,8 @@ class MainActivity : AppCompatActivity() {
     private var frameWaitingCount = 0       // 列表视图：等输入任务数（liveStatus=waiting）
     private var frameErrorCount = 0         // 列表视图：失败任务数（liveStatus=error）
     private var frameFramesSince = -1L      // JS 侧距最近真实中继帧的秒数（假死判据）
-    private var frameWsOffline = false      // 任一工作区 disconnected/reconnecting
-    private var frameFragCount = -1         // 分片/解析失败累计（-1=未见任何信号；变化才落日志）
+    private var frameWsOffline = false      // V13.2 任一工作区 disconnected/reconnecting
+    private var frameFragCount = -1         // V13.4 分片/解析失败累计（-1=未见任何信号；变化才落日志）
     // 事件锚（JS 侧任务从 running 翻出瞬间记名）：列表聚合事件横幅的实体标题，
     // 防「用户看 A、后台 B 转态、横幅却写 A」的串台（全局 sessionTitle 只反映最近打开的会话）
     private var frameWaitingTitle = ""
@@ -162,7 +162,7 @@ class MainActivity : AppCompatActivity() {
             FileLog.log("LIFE", json)
             return
         }
-        // 错误帧感知：仅日志取证，永不进 onTerminal/onRecoverableTerminal（注意——
+        //  错误帧感知：仅日志取证，永不进 onTerminal/onRecoverableTerminal（核对禁令——
         // app-error 的 reason 与 terminal 码同名不同义：请求失败回执 vs 连接死亡，误路由会
         // 在「打开未连接远端工作区」等场景误清凭据）
         val appErr = sig.optString("appError", "")
@@ -172,13 +172,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
         // 传输层终态（帧桥第一手信号，React 渲染错误组件的同一毫秒上报，早于 DOM 文本探测
-        // 一个量级）。按码分流（2026-09-24 名单调整：被踢入保链）：
+        // 一个量级）。按码分流（2026-09-09 定形；2026-09-24 名单调整：被踢入保链）：
         //   真死（配对失效/鉴权失败 invalid-mobile-connection）→ 瞬时回配置清凭据
         //   可恢复（桌面端离线/中继不可用/被踢 session-conflict）→ 凭据均仍有效：
         //     离线/中继故障——桌面端重启后 setting.json 不变；
         //     被踢——同一凭据被第二设备使用（如手机/平板切换），sid/hash 未变，
-        //     点「使用粘贴的链接」重连即顶回对端，免重新扫码（权衡：链接盗用场景
-        //     会形成互踢循环，但泄露本身已是更大问题且互踢可暴露异常）
+        //     点「使用粘贴的链接」重连即顶回对端，免重新扫码（2026-09-24 设计决策，
+        //     权衡：链接盗用场景会形成互踢循环，但泄露本身已是更大问题且互踢可暴露异常）
         //   回配置但保留链接等用户手动点「使用粘贴的链接」重连——不清不自动重试
         val terminalCode = sig.optString("terminal", "")
         if (terminalCode.isNotEmpty()) {
@@ -212,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         frameErrorCount = sig.optInt("errorCount", 0)
         frameFramesSince = sig.optLong("framesSince", -1L)
         frameWsOffline = sig.optInt("wsOffline", 0) == 1
-        // 分片计数：变化才落日志（防分片风暴刷屏）；count=-1 → 0 的初见不算变化
+        //  分片计数：变化才落日志（防分片风暴刷屏）；count=-1 → 0 的初见不算变化
         val frag = sig.optInt("frag", 0)
         if (frag != frameFragCount && frameFragCount >= 0) {
             FileLog.log("FRAGMENT", "count=$frag sample=${sig.optString("fragSample", "").take(200)}")
@@ -229,7 +229,7 @@ class MainActivity : AppCompatActivity() {
         applyFrameState()
     }
 
-    // —— 完成事件判定基准：完成事件=同一实体「从跑变停」，
+    // —— 完成事件判定基准 修「一进已完成会话就弹」）：完成事件=同一实体「从跑变停」，
     //    「进入已完成状态」（浏览老会话/切视图）不是事件，不弹提醒，只更新通知状态 ——
     /** 上次信号的视图（"list"/"session"）——视图切换帧不判事件（跨语境无事件语义）。 */
     private var lastView = ""
@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity() {
         lastListRunning = frameRunningCount > 0
 
         if (view == "list") {
-            // 工作区掉线提示（正文竞合规则）：仅列表语境且连接层非重连中时追加——
+            //  工作区掉线提示（正文竞合规则）：仅列表语境且连接层非重连中时追加——
             // 会话视图预览优先不打扰；连接层自己都在重连时工作区提示是噪声
             val wsSuffix = if (frameWsOffline && machine.state != ConnectionMachine.State.RECONNECTING) {
                 "（工作区重连中）"
@@ -324,7 +324,7 @@ class MainActivity : AppCompatActivity() {
                 StatusNotifier.current == SessionState.DONE
             ) {
                 // 聚合完成：列表语境没有单会话的 completed 帧，「从有任务在跑到全部停」即完成。
-                // 保持 DONE 而非回落 IDLE——完成需要可感知，
+                // 保持 DONE 而非回落 IDLE——完成态上岛（2026-09-07 反馈收岛无提示），
                 // 直到新一轮任务开始才回工作中
                 StatusNotifier.update(
                     this, SessionState.DONE,
@@ -339,13 +339,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             val state = when (frameStatus) {
                 "running" -> SessionState.RUNNING
-                "waiting" -> SessionState.WAITING // 等输入单列展示（2026-09-07 设计决策）
+                "waiting" -> SessionState.WAITING // 等输入单列展示（2026-09-07 用户拍板「要」）
                 "completed" -> SessionState.DONE
                 "error" -> SessionState.SEND_FAILED
                 else -> null // idle/unknown：帧拿不准，交给轮询兜底
             }
             if (state != null) {
-                // 通知形态：标题=会话名（应用名系统自带显示，不重复写），
+                // 通知形态（2026-09-07 定义）：标题=会话名（应用名系统自带显示，不重复写），
                 // 正文=最新一条消息（lastAssistantPreview 实时滚动）；preview 空时正文退状态文案
                 StatusNotifier.update(
                     this, state,
@@ -362,7 +362,7 @@ class MainActivity : AppCompatActivity() {
     /** 帧桥活着（新鲜度分档见 ConnectionMachine）→ 状态由帧驱动，轮询让位。 */
     private fun frameSignalFresh(): Boolean = machine.frameSignalFresh()
 
-    // —— 探测循环：唯一职责是降级模式下的 DOM 兜底（注入脚本报平安新鲜时
+    // —— 探测循环：唯一职责是降级模式下的 DOM 兜底注入脚本报平安新鲜时
     //    不执行任何 evaluateJavascript），节拍 5s 只是轮询降级开关本身 ——
     private val probeRunnable = object : Runnable {
         override fun run() {
@@ -372,7 +372,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 密集重载耗尽后的低频自愈 + 帧流假死检测：每 60s
+    // 密集重载耗尽后的低频自愈 + 帧流假死检测）：每 60s
     private val slowRetryRunnable = object : Runnable {
         override fun run() {
             if (!isFinishing && !machine.onSlowTick()) {
@@ -438,14 +438,14 @@ class MainActivity : AppCompatActivity() {
         destroyWebView()
     }
 
-    // 后台起点记录（哨兵 0=无记录：冷启动首启没有 onPause 前史，必须不触发回前台重建）
+    //  后台起点（哨兵 0=无记录：冷启动首启没有 onPause 前史，必须不触发回前台重建）
     private var pausedAt = 0L
 
     // 前后台变化喂状态机：新鲜度阈值分档（前台 15s 严格、后台 90s 容忍 WebView 节流压稀心跳）
     override fun onResume() {
         super.onResume()
         machine.onForegroundChanged(true)
-        // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式，非必然性——空闲链路可能
+        //  回前台重建：后台超 45s（桌面重放宽限对齐的启发式，非必然性——空闲链路可能
         // 未降级白重载一次约 20s，接受该代价换降级场景的确定快速恢复）=桥大概率已降级，
         // 被动等降级通知实测约 2 分钟，主动整页重载走完整重建
         if (pausedAt > 0L && panel == Panel.WEB) {
@@ -464,7 +464,7 @@ class MainActivity : AppCompatActivity() {
         pausedAt = SystemClock.elapsedRealtime()
     }
 
-    // —— 通知直达会话：通知 extra 带目标任务标题，点击后页面导航过去 ——
+    // —— 通知直达会话（2026-09-09 需求）：通知 extra 带目标任务标题，点击后页面导航过去 ——
 
     private var pendingNavTitle: String? = null
 
@@ -528,7 +528,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (raw == "NOT_FOUND") {
                     // 页面骨架期列表未渲染时目标行找不到——与 PENDING 同待遇重试，
-                    // 耗尽静默停当前页（此前一次性放弃，冷启动点横幅必经此路）
+                    // 耗尽静默停当前页（复核修正：此前一次性放弃，冷启动点横幅必经此路）
                     android.util.Log.d("ZCodeRemote", "nav locate('$title') not found, retry=$retry")
                     if (retry < 3) handler.postDelayed({ clickTaskItem(title, retry + 1) }, 2_000L)
                     return@evaluateJavascript
@@ -725,7 +725,7 @@ setTimeout(function(){
         webView = null
     }
 
-    // —— 帧拦截注入 ——
+    // ——  帧拦截注入 ——
 
     private var cachedHookSource: String? = null
     private fun frameHookSource(): String =
@@ -771,7 +771,7 @@ setTimeout(function(){
     private fun updateSessionState(running: Boolean, sendFailed: Boolean, title: String) {
         // 配置界面没有会话在跑，通知已随保活服务停止，不该再动
         if (panel == Panel.CONFIG) return
-        // 帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），轮询让位只做兜底
+        // ：帧桥活着时状态由协议帧驱动（帧拿不准的 idle/unknown 会留空不走帧路径），轮询让位只做兜底
         if (frameSignalFresh() && machine.lastProbeHit == null) return
         val newState = when {
             machine.lastProbeHit != null || machine.pageErrorVisible || machine.recentlyReloaded() ->
@@ -797,7 +797,7 @@ setTimeout(function(){
             seenFirstNetwork = true
             return
         }
-        // 语义（重载/耗尽决策在 ConnectionMachine）：网络切换必然弄死页面的中继连接
+        //  语义（重载/耗尽决策在 ConnectionMachine）：网络切换必然弄死页面的中继连接
         // （源地址变了页面却收不到断开信号），已加载过页面就无条件重载
         machine.onNetworkRecovered()
     }
@@ -833,7 +833,7 @@ setTimeout(function(){
         stopProbeLoops()
         if (keepLink) {
             // 可恢复终态（桌面端离线/中继故障）：链接仍有效——保留存储并在输入框预填，
-            // 用户点「使用粘贴的链接」即重连（设计取舍：不做自动重试）
+            // 用户点「使用粘贴的链接」即重连（自动重试方案 2026-09-09 被弃用）
             etUrl.setText(UrlStore.load(this) ?: "")
         } else {
             UrlStore.clear(this)

@@ -7,9 +7,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 关键事件文件日志：关键事件落盘 filesDir/logs/frame-events.log——logcat 环形缓冲
- * 会被日常使用冲掉，文件不受影响。
- * 时间格式与 logcat 对齐（MM-dd HH:mm:ss.SSS）便于与 logcat 时间线互相核对；512KB 轮转保上一份；
+ * 终态取证文件日志）：关键事件落盘 filesDir/logs/frame-events.log——logcat 环形缓冲
+ * 会被日常使用冲掉（2026-09-13 跳电取证缺 terminal 码的教训），文件不受影响。
+ * 时间格式与 logcat 对齐（MM-dd HH:mm:ss.SSS）便于核对；512KB 轮转保上一份；
  * 全程静默失败——日志系统绝不影响主流程。
  */
 object FileLog {

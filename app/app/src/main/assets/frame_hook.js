@@ -1,4 +1,4 @@
-// 帧拦截注入脚本：覆写页面 WebSocket，旁听与中继的帧流（只听不发），
+//  帧拦截注入脚本：覆写页面 WebSocket，旁听与中继的帧流（只听不发），
 // 提炼任务/会话状态 + 视图语境，经 ZcodeFrameBridge 桥周期上报给 Kotlin。
 // 协议结构依据 docs/frame-protocol.md（真机样本实证）。
 (function () {
@@ -14,8 +14,8 @@
   var pendingReport = 0;   // 即时上报的合并定时器（帧风暴时 300ms 合并一次）
   var pairState = '';      // 最近一次 pair_status_ack 的值（waiting|matched）——诊断观察
   var everData = false;    // 收到过 data 帧=配对成功过（close 层终态判定：waiting 期无任何 data 帧）
-  var wsOffline = false;   // 任一工作区 connectionState ∈ {disconnected, reconnecting}
-  var fragSeen = 0;        // wire kind≠complete 的分片/未知信封计数（随信号上报）
+  var wsOffline = false;   // 任一工作区 connectionState ∈ {disconnected, reconnecting}（V13.2）
+  var fragSeen = 0;        // wire kind≠complete 的分片/未知信封计数（V13.4，随信号上报）
   var fragParseFails = 0;  // dataBase64 解析失败计数（半截分片死在 JSON.parse，不经 handleInner）
   var fragSample = '';     // 首个分片样本头（kind/topic/前缀）——只记首个，反哺协议待实证节
   // 事件锚：任务从 running 翻出的瞬间记名（列表聚合事件的横幅实体来源——计数帧没有"是谁"，
@@ -33,7 +33,7 @@
   function extractDataEvents(outer) {
     everData = true; // data 帧=工作区数据，只有配对成功后中继才推
     var payload = outer.payload || {};
-    // 错误帧感知（zcode_type 判定，与 bootstrap 快照同层；bundle 实证页面侧同入口）。
+    //  错误帧感知（zcode_type 判定，与 bootstrap 快照同层；bundle 实证页面侧同入口）。
     // 只上报不驱动终态：app-error 是请求失败回执（reason 与 terminal 码同名不同义），
     // bridge-degraded 页面自己 markDegraded 自愈——三类全部仅作感知取证（APPERR 日志）
     var zt = payload.zcode_type;
@@ -41,7 +41,7 @@
       reportAppError(zt, payload);
       return;
     }
-    // 工作区掉线直读（源①：zcode_type 推送，签名变更即推；源②在 handleInner 的
+    //  工作区掉线直读（源①：zcode_type 推送，签名变更即推；源②在 handleInner 的
     // controller/workspaces 快照——重载后状态恢复兜底）
     if (zt === 'workspace-list-updated') {
       applyWorkspaceStates(payload.result && payload.result.workspaces);
@@ -56,7 +56,7 @@
         if (brace < 0) return;
         var text = new TextDecoder('utf-8').decode(bytes.subarray(brace));
         handleInner(JSON.parse(text));
-      } catch (e) { fragParseFails++; if (!fragSample) fragSample = 'parseFail'; /* 半截分片/未识别帧：计数不静默丢 */ }
+      } catch (e) { fragParseFails++; if (!fragSample) fragSample = 'parseFail'; /* 半截分片/未识别帧：计数不静默丢（V13.4） */ }
     } else if (payload.requestId && payload.result && payload.result.tasks) {
       // bootstrap 快照：tasks[].displayStatus
       var list = payload.result.tasks;
@@ -71,12 +71,12 @@
   }
 
   // 内层 wire 帧：{wireVersion, kind, topic, frame:{topic, payload:{kind:"deltas", deltas:[…]}}}
-  // ——真实数据在 frame.payload（排查结论：此前误读 j.payload，增量解析从未成功过，
+  // ——真实数据在 frame.payload 排查实锤：此前误读 j.payload，增量解析从未成功过，
   // 状态全靠 WS 重连时的 bootstrap 快照刷新兜着，分钟级延迟；兼容直挂 payload 的形态防御结构变化）
   function handleInner(j) {
-    // 分片防御：kind 检查必须先于 topic 检查——分片信封可能缺 topic，首行 topic
-    // 检查会把它挡在 kind 识别之前。完整重组待捕捉到真实分片样本后再实现。
-    // 已知合法 kind 白名单：complete=普通逻辑帧；hello=RPC 握手信封（已在真实流量中观测到：
+    //  分片防御：kind 检查必须先于 topic 检查——分片信封可能缺 topic，首行 topic
+    // 检查会把它挡在 kind 识别之前（复核）。完整重组待真机抓到分片形态后再立项。
+    // 已知合法 kind 白名单：complete=普通逻辑帧；hello=RPC 握手信封（2026-09-16 真机首证
     // kind=hello/无 topic/clientMode=web-remote-replayable，握手帧无任务数据，跳过不计数）
     if (j && j.kind && j.kind !== 'complete') {
       if (j.kind === 'hello') return;
@@ -90,7 +90,7 @@
     var p = (j.frame && j.frame.payload) || j.payload;
     if (!p) return;
       if (j.topic === 'controller/workspaces') {
-      // 工作区状态源②：workspaces 快照（bootstrap 同构，重载后状态恢复兜底）
+      //  源②：workspaces 快照（bootstrap 同构，重载后状态恢复兜底）
       applyWorkspaceStates(p.workspaces || (p.snapshot && p.snapshot.workspaces));
     } else if (j.topic === 'controller/tasks-index') {
       var deltas = p.deltas;
@@ -129,8 +129,8 @@
       // 交给 5s 定时器兜底——帧里高频的 updatedAt 抖动不该打搅 DOM 读取
       if (changed) scheduleReport();
     } else if (j.topic && j.topic.indexOf('sessions-index/') === 0) {
-      // 会话实时预览：lastAssistantPreview=流式回复的滚动预览（通知正文「最新一条消息」的数据源）。
-      // preview 变化即时上报，同样吃 300ms 合并——流式高频不至于刷爆桥
+      // 会话实时预览：lastAssistantPreview=流式回复的滚动预览（通知正文「最新一条消息」的数据源，
+      // 2026-09-07 需求）。preview 变化即时上报，同样吃 300ms 合并——流式高频不至于刷爆桥
       var sDeltas = p.deltas;
       if (!sDeltas) return;
       for (var si = 0; si < sDeltas.length; si++) {
@@ -147,8 +147,8 @@
     }
   }
 
-  // —— 错误帧上报：JSON.stringify 构造（帧内 reason/error 可能含引号，手拼会产生
-  //    非法 JSON 被 Kotlin 静默丢，故必须结构化构造；app-error/workspace-bridge-error 带
+  // ——  错误帧上报：JSON.stringify 构造（帧内 reason/error 可能含引号，手拼会产生
+  //    非法 JSON 被 Kotlin 静默丢——复核的构造约束；app-error/workspace-bridge-error 带
   //    requestId/reason/error，bridge-degraded 只带 bridgeSessionId/reason=rpc-transport-fault）——
   function reportAppError(zt, payload) {
     try {
@@ -161,7 +161,7 @@
     } catch (e) { /* 桥异常静默 */ }
   }
 
-  // —— 工作区状态聚合：任一 connectionState ∈ {disconnected, reconnecting} 即离线 ——
+  // ——  工作区状态聚合：任一 connectionState ∈ {disconnected, reconnecting} 即离线 ——
   function applyWorkspaceStates(workspaces) {
     if (!workspaces || !workspaces.length) return;
     var off = false;
@@ -193,7 +193,7 @@
   }
 
   // —— WS 层终态直报（第一手，早于 React 渲染）：中继 error 帧的分发语义照抄官方
-  // handleRelayError（官方 web 包的 remote-bundle.js，本地逆向副本）：KICKED/AUTH_FAILED/WRONG_PARAM 终态，
+  // handleRelayError（artifacts/remote-bundle.js）：KICKED/AUTH_FAILED/WRONG_PARAM 终态，
   // DEVICE_OFFLINE/INTERNAL 可恢复不报，未知码=官方兜底 relay-unavailable 也终态。
   // 即时单帧上报不进 300ms 合并——量极小，且这一毫秒就是它存在的意义
   var RELAY_FATAL = { KICKED: 'session-conflict', AUTH_FAILED: 'invalid-mobile-connection', WRONG_PARAM: 'invalid-mobile-connection' };
@@ -207,7 +207,7 @@
     } catch (e) { /* 桥异常静默，DOM 探测兜底 */ }
   }
 
-  // close(1005) 语义不唯一，不做终态判定（网络抖动场景曾误判，该判定已退役）：
+  // close(1005) 语义不唯一，不做终态判定（2026-09-08 实测网络抖动误杀后退役）：
   // 页面重连前同样主动关旧连接（1005），与等待超时自杀无法区分——曾以「零 data 帧
   // +1005」判 waiting 终局，网络抖动撞上刚配对/重载后的无数据窗口即误清凭据。
   // 等待超时终态由 h1 标题锚层兜住（渲染后 ~0.5s，零误判）。close 只留诊断
@@ -217,15 +217,15 @@
     } catch (e) { /* 桥异常静默 */ }
   }
 
-  // —— 视图语境 + 状态决策（语义约定：列表视图=聚合、会话视图=单会话） ——
+  // —— 视图语境 + 状态决策（语义：列表=聚合、会话=单会话） ——
   // 视图判定用 XPath 定点查「任务会话」标题（文本节点查询不触发样式重排，比读全文便宜）；
   // 标题配对只在视图翻转时做一次——视图内当前会话不变，其状态由帧驱动即时刷新
   var lastView = '';
   var curTitle = '';
 
   // 终态页锚=渲染标题（_4t 组件 h1=r.title，不挂任何 data 属性——data-error-code 是
-  // 会话消息错误组件的锚，曾挂错对象真机实测落空）。四码双语对照官方 web 包
-  // remote-bundle.js 映射表；会话页 h1=会话名，撞上这八个标题的概率≈0
+  // 会话消息错误组件的锚，曾挂错对象真机实测落空）。四码双语对照 artifacts/remote-bundle.js
+  // 映射表；会话页 h1=会话名，撞上这八个标题的概率≈0
   var TERMINAL_TITLES = {
     '手机连接已失效': 'invalid-mobile-connection',
     'Mobile Connection Invalid': 'invalid-mobile-connection',
@@ -269,7 +269,7 @@
     return '';
   }
 
-  // 错误横幅读取：错误详情不在帧数据里
+  // 错误横幅读取（2026-09-07 需求「通知描述用返回的失败原因」）：错误详情不在帧数据里
   // （session/task 的帧 schema 均无 error 字段，lastAssistantPreview 对错误会话为空），真实源=
   // 会话视图渲染的错误横幅组件——带 data-error-code 的 DOM 元素，React 属性里挂完整错误对象。
   // 沿 fiber 向上爬找 error.message（干净文本）；React 结构变了退 textContent 截断
@@ -303,7 +303,8 @@
       curTitle = '';
     }
     // 翻转瞬间页面可能还在渲染（innerText 里还没有会话标题），配对会落空——
-    // 只试一次的话空标题会让信号 status 为空、Kotlin 侧判回列表视图。session 视图下空标题持续重试直到配上
+    // 只试一次的话空标题会让信号 status 为空、Kotlin 侧判回列表视图（2026-09-07 真机
+    // 「打开已完成会话状态栏还是任务列表」）。session 视图下空标题持续重试直到配上
     if (view === 'session' && !curTitle) curTitle = matchSessionTitle();
 
     var runningCount = 0;
