@@ -21,6 +21,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Ensure gradlew executable
+        run: chmod +x app/gradlew
+
       - name: Decode signing keystore
         if: env.KEYSTORE_BASE64 != ''
         env:
