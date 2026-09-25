@@ -29,4 +29,10 @@
     <string name="waiting_alert_text">任务在等你的输入，可回手机处理</string>
 
     <string name="download_failed">无法打开下载链接</string>
+
+    <string name="update_dialog_title">发现新版本 %1$s</string>
+    <string name="update_dialog_open">去下载</string>
+    <string name="update_dialog_later">暂不</string>
+    <string name="update_dialog_skip">跳过此版本</string>
+    <string name="update_open_failed">无法打开下载页面</string>
 </resources>

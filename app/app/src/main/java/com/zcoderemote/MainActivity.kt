@@ -437,6 +437,59 @@ class MainActivity : AppCompatActivity() {
         FileLog.log("APP", "cold-start stored=${stored != null} → ${if (stored != null) "enterWeb" else "config"}")
         if (stored != null) enterWeb(stored) else showPanel(Panel.CONFIG)
         handleNavIntent(intent) // 冷启动路径的通知直达（onNewIntent 只覆盖活动态）
+        if (savedInstanceState == null) checkForUpdate()
+    }
+
+    // —— 启动更新检查（冷启动一次）：GitHub 最新 Release 比当前新则弹窗，确认打开下载页 ——
+
+    /** 待弹的更新提示：检查完成时若界面不可见（锁屏/后台启动），暂存到首次 onResume 补弹。 */
+    private var pendingUpdate: UpdateChecker.Update? = null
+
+    private fun checkForUpdate() {
+        val current = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: return
+        } catch (_: Exception) {
+            return
+        }
+        Thread {
+            val update = UpdateChecker.check(current) ?: return@Thread
+            val skipped = getSharedPreferences("update", MODE_PRIVATE).getString("skippedVersion", "")
+            if (update.version == skipped) return@Thread
+            handler.post {
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                    showUpdateDialog(update)
+                } else {
+                    pendingUpdate = update
+                }
+            }
+        }.start()
+    }
+
+    private fun maybeShowPendingUpdate() {
+        val update = pendingUpdate ?: return
+        pendingUpdate = null
+        showUpdateDialog(update)
+    }
+
+    private fun showUpdateDialog(update: UpdateChecker.Update) {
+        val prefs = getSharedPreferences("update", MODE_PRIVATE)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_dialog_title, update.version))
+            .setMessage(update.notes?.take(300) ?: "")
+            .setPositiveButton(R.string.update_dialog_open) { _, _ -> openUrl(update.url) }
+            .setNegativeButton(R.string.update_dialog_later, null)
+            .setNeutralButton(R.string.update_dialog_skip) { _, _ ->
+                prefs.edit().putString("skippedVersion", update.version).apply()
+            }
+            .show()
+    }
+
+    private fun openUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.update_open_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onDestroy() {
@@ -454,6 +507,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         machine.onForegroundChanged(true)
+        maybeShowPendingUpdate() // 锁屏/后台期间检查到的更新提示，回前台补弹
         // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式——空闲链路可能未降级白重连一次，
         // 接受该代价换降级场景的确定快速恢复）。首选页内重连（伪造异常断开触发页面快速路径，
         // React 状态保留，实测首个 data 帧约 0.9s）；hook 不在或 10s 无 data 帧（reconnect:timeout
