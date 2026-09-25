@@ -179,7 +179,13 @@
     lastFrameAt = Date.now();
     try {
       var outer = JSON.parse(text);
-      if (outer.type === 'data') extractDataEvents(outer);
+      if (outer.type === 'data') {
+        // 页内重连成功判据：踢后新连接的首个 data 帧（旧连接在途帧不算—— kickedWs 身份比对）
+        if (kickedWs && !firstDataFrameAt && window.__zcodeMsgWs && window.__zcodeMsgWs !== kickedWs) {
+          firstDataFrameAt = lastFrameAt;
+        }
+        extractDataEvents(outer);
+      }
       else if (outer.type === 'error') reportRelayError(outer);
       else if (outer.type === 'pair_status_ack') {
         var ps = String(outer.pair_status || '');
@@ -352,13 +358,45 @@
 
   // —— WebSocket 覆写：包实例不换类型 ——
   var O = window.WebSocket;
+  // —— 页内重连（回前台秒级恢复，替代整页刷新）：伪造「异常断开」事件序列触发页面自身的
+  //    快速重连路径（异常关闭走 ~1s 调度，干净关闭走 ~20s 慢速调度）。只派发本地事件+关闭
+  //    连接，不发送任何协议帧；页面 React 状态保留（不重载），实测首个 data 帧 ~0.9s 到达。
+  //    触发由 Kotlin 侧（回前台且后台超重放宽限）调用 window.__zcodeReconnect()。 ——
+  var lastWs = null;
+  var kickedWs = null;
+  var firstDataFrameAt = 0;
+  window.__zcodeReconnect = function () {
+    if (!lastWs || lastWs.readyState !== 1) return 'no-active-ws';
+    try {
+      kickedWs = lastWs;
+      firstDataFrameAt = 0;
+      lastWs.dispatchEvent(new Event('error'));
+      lastWs.dispatchEvent(new CloseEvent('close', { code: 1006, wasClean: false, reason: '' }));
+      lastWs.close();
+      // 监测：首个新连接 data 帧到达=成功（reconnect:ok）；10s 未到=失败（reconnect:timeout，
+      // Kotlin 侧回退整页刷新）。判据用物理帧到达，不依赖日志打印条件（STATUS 翻转/配对去重
+      // 都会在页内重连场景静默，实测教训）
+      var t0 = Date.now();
+      var iv = setInterval(function () {
+        if (firstDataFrameAt) {
+          clearInterval(iv);
+          try { bridge.onSignal('{"reconnect":"ok","ms":' + (firstDataFrameAt - t0) + '}'); } catch (e) {}
+        } else if (Date.now() - t0 > 10000) {
+          clearInterval(iv);
+          try { bridge.onSignal('{"reconnect":"timeout"}'); } catch (e) {}
+        }
+      }, 1500);
+      return 'kicked';
+    } catch (e) { return 'err:' + e.message; }
+  };
   function wrap(ws, url) {
+    lastWs = ws;
     var raw = ws.addEventListener.bind(ws);
     raw('open', function () { try { bridge.onSignal('{"life":"open","url":"' + url + '"}'); } catch (e) {} });
     raw('close', function (ev) { reportCloseSignal(ev.code); });
     ws.addEventListener = function (type, listener, opts) {
       if (type === 'message' && typeof listener === 'function') {
-        var wrapped = function (ev) { onWireMessage(String(ev.data)); listener(ev); };
+        var wrapped = function (ev) { window.__zcodeMsgWs = ws; onWireMessage(String(ev.data)); listener(ev); };
         return raw(type, wrapped, opts);
       }
       return raw(type, listener, opts);
@@ -370,7 +408,7 @@
         get: function () { return userFn; },
         set: function (fn) {
           userFn = fn;
-          protoDesc.set.call(ws, function (ev) { onWireMessage(String(ev.data)); fn && fn(ev); });
+          protoDesc.set.call(ws, function (ev) { window.__zcodeMsgWs = ws; onWireMessage(String(ev.data)); fn && fn(ev); });
         }
       });
     }
