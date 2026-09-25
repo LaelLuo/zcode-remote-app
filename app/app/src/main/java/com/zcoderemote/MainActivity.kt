@@ -40,8 +40,11 @@ import com.journeyapps.barcodescanner.ScanOptions
 class MainActivity : AppCompatActivity() {
 
     private companion object {
-        /** V14 回前台重建阈值：与桌面重放宽限对齐的启发式（架构文档 §2 replayBufferGraceMs=45s） */
+        /** 回前台重建阈值：与桌面重放宽限对齐的启发式（架构文档 §2 replayBufferGraceMs=45s） */
         private const val RESUME_RELOAD_AFTER_MS = 45_000L
+
+        /** 桥降级记录的有效窗口：窗口内回前台=直接整页重载（桥重建远超页内重连 10s 上限） */
+        private const val BRIDGE_DEGRADED_WINDOW_MS = 30 * 60_000L
     }
 
     private enum class Panel { CONFIG, WEB, ERROR }
@@ -160,6 +163,8 @@ class MainActivity : AppCompatActivity() {
             // 只旁听不驱动；close 的 code/pairState 是「close 层为何未判终态」的取证面
             Log.d("FrameSignal", json)
             FileLog.log("LIFE", json)
+            // 配对成功=连接健康铁证：清桥降级标记（此后回前台恢复走页内重连快速路径）
+            if (sig.optString("pairState", "") == "matched") bridgeDegradedAt = 0L
             return
         }
         // V13.1 错误帧感知：仅日志取证，永不进 onTerminal/onRecoverableTerminal（对账禁令——
@@ -169,6 +174,10 @@ class MainActivity : AppCompatActivity() {
         if (appErr.isNotEmpty()) {
             Log.i("FrameSignal", "appError zt=${sig.optString("zt", "")} reason=$appErr detail=${sig.optString("detail", "").take(80)}")
             FileLog.log("APPERR", json)
+            // 桥降级时间戳：页内重连只救「WS 断了」，救不了「桥降级」（重连后桥重建远超 10s）——
+            // 回前台时据此分流：近期降级过=直接整页重载，跳过注定超时的页内重连（真机教训：
+            // 锁屏回前台先白等 10s 超时再 20s 重载，比纯整页还慢）
+            if (appErr == "rpc-transport-fault") bridgeDegradedAt = SystemClock.elapsedRealtime()
             return
         }
         // 页内重连结果（hook 监测信号）：ok=新连接 data 帧已到（恢复完成）；timeout=10s 无帧，
@@ -503,27 +512,37 @@ class MainActivity : AppCompatActivity() {
     // V14 后台起点（哨兵 0=无记录：冷启动首启没有 onPause 前史，必须不触发回前台重建）
     private var pausedAt = 0L
 
+    // 最近一次 bridge-degraded 时刻（elapsedRealtime；回前台分流用——近期降级过则跳过页内重连）
+    private var bridgeDegradedAt = 0L
     // 前后台变化喂状态机：新鲜度阈值分档（前台 15s 严格、后台 90s 容忍 WebView 节流压稀心跳）
     override fun onResume() {
         super.onResume()
         machine.onForegroundChanged(true)
         maybeShowPendingUpdate() // 锁屏/后台期间检查到的更新提示，回前台补弹
-        // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式——空闲链路可能未降级白重连一次，
-        // 接受该代价换降级场景的确定快速恢复）。首选页内重连（伪造异常断开触发页面快速路径，
-        // React 状态保留，实测首个 data 帧约 0.9s）；hook 不在或 10s 无 data 帧（reconnect:timeout
-        // 信号）时回退整页重载（V14 原路径，约 20s）——两层保险
+        // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式）。分流：
+        // ① 近期收到过 bridge-degraded（锁屏期间桥已降级）→ 页内重连救不了桥重建（真机教训：
+        //    白等 10s 超时再 20s 整页重载），直接整页重载
+        // ② 无降级记录（连接可能还活，只是 WS 层断）→ 页内重连（~1s 恢复，React 状态保留）；
+        //    hook 不在或 10s 无 data 帧（reconnect:timeout）回退整页重载——两层保险
         if (pausedAt > 0L && panel == Panel.WEB) {
             val backgroundMs = SystemClock.elapsedRealtime() - pausedAt
             if (backgroundMs > RESUME_RELOAD_AFTER_MS) {
-                FileLog.log("RESUME_RECONNECT", "backgroundMs=${backgroundMs}ms > ${RESUME_RELOAD_AFTER_MS}ms → 页内重连（回退=整页重载）")
-                webView?.evaluateJavascript(
-                    "window.__zcodeReconnect ? window.__zcodeReconnect() : 'no-hook'"
-                ) { res ->
-                    if (res?.trim('"') == "kicked") {
-                        // 成功触发页内重连；结果由 reconnect 信号回报（ok/timeout）
-                    } else {
-                        FileLog.log("RESUME_RELOAD", "页内重连不可用（$res）→ 回退整页重载")
-                        machine.onForegroundStale()
+                val degradedRecently =
+                    bridgeDegradedAt > 0L && SystemClock.elapsedRealtime() - bridgeDegradedAt < BRIDGE_DEGRADED_WINDOW_MS
+                if (degradedRecently) {
+                    FileLog.log("RESUME_RELOAD", "backgroundMs=${backgroundMs}ms + 近期桥降级 → 直接整页重载")
+                    machine.onForegroundStale()
+                } else {
+                    FileLog.log("RESUME_RECONNECT", "backgroundMs=${backgroundMs}ms > ${RESUME_RELOAD_AFTER_MS}ms → 页内重连（回退=整页重载）")
+                    webView?.evaluateJavascript(
+                        "window.__zcodeReconnect ? window.__zcodeReconnect() : 'no-hook'"
+                    ) { res ->
+                        if (res?.trim('"') == "kicked") {
+                            // 成功触发页内重连；结果由 reconnect 信号回报（ok/timeout）
+                        } else {
+                            FileLog.log("RESUME_RELOAD", "页内重连不可用（$res）→ 回退整页重载")
+                            machine.onForegroundStale()
+                        }
                     }
                 }
             }
