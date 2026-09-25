@@ -45,6 +45,9 @@ class MainActivity : AppCompatActivity() {
 
         /** 桥降级记录的有效窗口：窗口内回前台=直接整页重载（桥重建远超页内重连 10s 上限） */
         private const val BRIDGE_DEGRADED_WINDOW_MS = 30 * 60_000L
+
+        /** 帧流健康判定：距最近一帧小于此值=连接与数据流活着（锁屏实测 <1s），回前台零动作 */
+        private const val FRAME_HEALTHY_MAX_AGE_MS = 30_000L
     }
 
     private enum class Panel { CONFIG, WEB, ERROR }
@@ -519,35 +522,49 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         machine.onForegroundChanged(true)
         maybeShowPendingUpdate() // 锁屏/后台期间检查到的更新提示，回前台补弹
-        // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式）。分流：
-        // ① 近期收到过 bridge-degraded（锁屏期间桥已降级）→ 页内重连救不了桥重建（真机教训：
-        //    白等 10s 超时再 20s 整页重载），直接整页重载
-        // ② 无降级记录（连接可能还活，只是 WS 层断）→ 页内重连（~1s 恢复，React 状态保留）；
-        //    hook 不在或 10s 无 data 帧（reconnect:timeout）回退整页重载——两层保险
+        // 回前台重建：后台超 45s（桌面重放宽限对齐的启发式）。三级分流：
+        // ① 帧流健康（音频保活生效时锁屏期间连接与数据流全程存活，实测距最近帧 <1s）
+        //    → 什么都不做，真 0 秒恢复——踢掉健康连接重连反而是倒退
+        // ② 近期收到过 bridge-degraded（桥已降级）→ 页内重连救不了桥重建，直接整页重载
+        // ③ 其余（连接层断但桥未降级）→ 页内重连（~1s）；hook 不在或 10s 无 data 帧
+        //    （reconnect:timeout）回退整页重载——两层保险
         if (pausedAt > 0L && panel == Panel.WEB) {
             val backgroundMs = SystemClock.elapsedRealtime() - pausedAt
             if (backgroundMs > RESUME_RELOAD_AFTER_MS) {
-                val degradedRecently =
-                    bridgeDegradedAt > 0L && SystemClock.elapsedRealtime() - bridgeDegradedAt < BRIDGE_DEGRADED_WINDOW_MS
-                if (degradedRecently) {
-                    FileLog.log("RESUME_RELOAD", "backgroundMs=${backgroundMs}ms + 近期桥降级 → 直接整页重载")
-                    machine.onForegroundStale()
-                } else {
-                    FileLog.log("RESUME_RECONNECT", "backgroundMs=${backgroundMs}ms > ${RESUME_RELOAD_AFTER_MS}ms → 页内重连（回退=整页重载）")
-                    webView?.evaluateJavascript(
-                        "window.__zcodeReconnect ? window.__zcodeReconnect() : 'no-hook'"
-                    ) { res ->
-                        if (res?.trim('"') == "kicked") {
-                            // 成功触发页内重连；结果由 reconnect 信号回报（ok/timeout）
-                        } else {
-                            FileLog.log("RESUME_RELOAD", "页内重连不可用（$res）→ 回退整页重载")
-                            machine.onForegroundStale()
-                        }
+                webView?.evaluateJavascript(
+                    "window.__zcodeLastFrameAt ? (Date.now() - window.__zcodeLastFrameAt) : -1"
+                ) { res ->
+                    val frameAgeMs = res?.trim('"')?.toLongOrNull() ?: -1L
+                    if (frameAgeMs in 0..FRAME_HEALTHY_MAX_AGE_MS) {
+                        FileLog.log("RESUME_OK", "backgroundMs=${backgroundMs}ms 但帧流健康（距最近帧 ${frameAgeMs}ms，音频保活生效）→ 零动作")
+                    } else {
+                        resumeRebuild(backgroundMs, frameAgeMs)
                     }
-                }
+                } ?: resumeRebuild(backgroundMs, -1)
             }
         }
         pausedAt = 0L
+    }
+
+    private fun resumeRebuild(backgroundMs: Long, frameAgeMs: Long) {
+        val degradedRecently =
+            bridgeDegradedAt > 0L && SystemClock.elapsedRealtime() - bridgeDegradedAt < BRIDGE_DEGRADED_WINDOW_MS
+        if (degradedRecently) {
+            FileLog.log("RESUME_RELOAD", "backgroundMs=${backgroundMs}ms frameAge=${frameAgeMs}ms + 近期桥降级 → 直接整页重载")
+            machine.onForegroundStale()
+        } else {
+            FileLog.log("RESUME_RECONNECT", "backgroundMs=${backgroundMs}ms frameAge=${frameAgeMs}ms → 页内重连（回退=整页重载）")
+            webView?.evaluateJavascript(
+                "window.__zcodeReconnect ? window.__zcodeReconnect() : 'no-hook'"
+            ) { res ->
+                if (res?.trim('"') == "kicked") {
+                    // 成功触发页内重连；结果由 reconnect 信号回报（ok/timeout）
+                } else {
+                    FileLog.log("RESUME_RELOAD", "页内重连不可用（$res）→ 回退整页重载")
+                    machine.onForegroundStale()
+                }
+            }
+        }
     }
 
     override fun onPause() {
