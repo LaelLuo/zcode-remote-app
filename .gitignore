@@ -25,3 +25,9 @@ auth.json
 # 凭据：远程控制链接含 passHash，不进版本史
 *.link.txt
 remote-url*
+
+# 签名密钥（本地，绝不入库）
+app/keystore.properties
+app/release.keystore
+*.jks
+*.keystore
