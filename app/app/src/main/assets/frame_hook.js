@@ -439,27 +439,4 @@
   // 定时器=心跳（假死检测依赖 framesSince 字段）；状态与视图变化均已事件驱动
   setInterval(report, 5000);
   report();
-
-  // —— 音频保活：锁屏/后台期间豁免 WebView 定时器节流，让页面心跳不死、帧确认不断，
-  //    桥不降级（回前台页内重连 ~1s 续上）。Chromium 对「正在播放音频的页面」放宽后台
-  //    节流；完全静音（gain=0/muted）不算「可闻播放」不豁免——用 0.001 的极低音量
-  //    （人耳不可闻，振荡器 1Hz）。需用户手势后才能启动（自动播放策略），首个触摸/点击
-  //    时创建；失败静默（不影响任何功能，仅保活失效回落原有重建路径） ——
-  var audioCtx = null;
-  function startAudioKeepAlive() {
-    if (audioCtx) return;
-    try {
-      audioCtx = new AudioContext();
-      var osc = audioCtx.createOscillator();
-      var gain = audioCtx.createGain();
-      gain.gain.value = 0.001;
-      osc.frequency.value = 1;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    } catch (e) { audioCtx = null; }
-  }
-  document.addEventListener('touchstart', startAudioKeepAlive, { once: true });
-  document.addEventListener('click', startAudioKeepAlive, { once: true });
 })();
